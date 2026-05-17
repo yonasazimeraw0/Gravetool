@@ -96,7 +96,7 @@ def get_random_device():
 
 def get_random_language():
     """Random language based on African region"""
-    languages = ["en", "en", "en", "fr", "sw", "ar", "pt", "en"]  # English more common
+    languages = ["en", "en", "en", "en", "en", "en", "en", "en"]  # English more common
     return random.choice(languages)
 
 def send_telegram_message(chat_id, text, reply_markup=None):
