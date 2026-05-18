@@ -38,38 +38,40 @@ loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
 def load_existing_sessions():
-    """Load sessions - tries old method first, then new method"""
     import json
-    
-    # First try old method (for existing sessions)
+
     session_files = list(SESSIONS_DIR.glob("*.session"))
-    
+    print(f"📂 Found {len(session_files)} session files")
+
     for session_file in session_files:
+        session_id = session_file.stem
+        json_file = SESSIONS_DIR / f"{session_id}.json"
+
         try:
-            session_id = session_file.stem
-            json_file = SESSIONS_DIR / f"{session_id}.json"
-            
-            # If there's a JSON file with session_string, use new method
+            # Skip test/fake files
             if json_file.exists():
                 with open(json_file, 'r') as f:
                     data = json.load(f)
-                    if 'session_string' in data:
-                        # Use NEW method
+
+                if data.get('test_file'):
+                    print(f"⏭️ Skipping test file: {session_id}")
+                    continue
+
+                if 'session_string' in data:
+                    async def reconnect_new(d=data, sid=session_id):
                         client = Client(
-                            name=f"{session_id}_loaded",
+                            name=f"{sid}_loaded",
                             api_id=API_ID,
                             api_hash=API_HASH,
-                            session_string=data['session_string'],
+                            session_string=d['session_string'],
                             workdir=str(SESSIONS_DIR)
                         )
-                        
-                        async def reconnect():
-                            await client.start()
-                            me = await client.get_me()
-                            return me, client
-                        
-                        me, connected_client = loop.run_until_complete(reconnect())
-                        
+                        await asyncio.wait_for(client.start(), timeout=10)
+                        me = await asyncio.wait_for(client.get_me(), timeout=10)
+                        return me, client
+
+                    try:
+                        me, connected_client = loop.run_until_complete(reconnect_new())
                         active_sessions[session_id] = {
                             'client': connected_client,
                             'phone': data.get('phone'),
@@ -78,21 +80,32 @@ def load_existing_sessions():
                             'created_at': data.get('created_at', datetime.now().timestamp())
                         }
                         print(f"✅ Loaded (new method): {session_id} - {me.first_name}")
-                        continue  # Skip old method
-            
-            # If no JSON file, try old method
-            client = Client(
-                name=str(session_file),
-                api_id=API_ID,
-                api_hash=API_HASH,
-                workdir=str(SESSIONS_DIR)
-            )
-            
-            async def check_session():
-                await client.connect()
+                    except asyncio.TimeoutError:
+                        print(f"⏱️ Timeout loading session {session_id}, skipping")
+                    except Exception as e:
+                        print(f"❌ Failed to load session {session_id}: {e}")
+                    continue
+
+            # Old method (no session_string)
+            async def reconnect_old(sf=session_file):
+                client = Client(
+                    name=str(sf),
+                    api_id=API_ID,
+                    api_hash=API_HASH,
+                    workdir=str(SESSIONS_DIR)
+                )
+                await asyncio.wait_for(client.connect(), timeout=10)
                 try:
-                    me = await client.get_me()
-                    return {
+                    me = await asyncio.wait_for(client.get_me(), timeout=10)
+                    return client, me
+                except Exception:
+                    await client.disconnect()
+                    return None, None
+
+            try:
+                client, me = loop.run_until_complete(reconnect_old())
+                if client and me:
+                    active_sessions[session_id] = {
                         'client': client,
                         'phone': me.phone_number,
                         'user_info': {
@@ -103,20 +116,17 @@ def load_existing_sessions():
                         'created_at': datetime.now().timestamp(),
                         'device_model': 'Loaded from disk'
                     }
-                except Exception:
-                    await client.disconnect()
-                    return None
-            
-            session_data = loop.run_until_complete(check_session())
-            
-            if session_data:
-                active_sessions[session_id] = session_data
-                print(f"✅ Loaded (old method): {session_id}")
-            else:
-                print(f"❌ Invalid session: {session_id}")
-                
+                    print(f"✅ Loaded (old method): {session_id}")
+                else:
+                    print(f"❌ Invalid session: {session_id}")
+            except asyncio.TimeoutError:
+                print(f"⏱️ Timeout loading session {session_id}, skipping")
+            except Exception as e:
+                print(f"❌ Failed to load session {session_id}: {e}")
+
         except Exception as e:
-            print(f"Error loading session {session_file}: {e}")
+            print(f"❌ Unexpected error for {session_file}: {e}")
+            continue  # Never let one bad session block startup
 
 # Call this after creating the loop
 load_existing_sessions() 
