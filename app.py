@@ -84,12 +84,13 @@ def load_existing_sessions():
 # Call this after creating the loop
 load_existing_sessions() 
 
-@app.route('/list-session-files', methods=['GET'])
-def list_session_files():
-    files = list(SESSIONS_DIR.glob("*"))
+@app.route('/debug-path', methods=['GET'])
+def debug_path():
     return jsonify({
-        'files': [str(f.name) for f in files],
-        'count': len(files)
+        'sessions_dir': str(SESSIONS_DIR.absolute()),
+        'dir_exists': SESSIONS_DIR.exists(),
+        'current_working_dir': str(Path.cwd().absolute()),
+        'files_in_sessions': [str(f) for f in SESSIONS_DIR.glob("*")] if SESSIONS_DIR.exists() else []
     })
 # Store which session each bot user has selected
 user_selected_session = {}
