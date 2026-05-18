@@ -254,7 +254,6 @@ def webhook():
                            f"📲 Device: {device_model}\n\n"
                            f"*What would you like to do?*")
                     
-                    # Edit the original message to show menu
                     url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
                     payload = {
                         "chat_id": chat_id,
@@ -299,8 +298,6 @@ def webhook():
                 requests.post(url, json=payload)
             
             elif data_callback == 'back_to_menu':
-                # Need to get the session_id for this user - store it temporarily
-                # For now, just show a message
                 url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
                 payload = {
                     "chat_id": chat_id,
@@ -311,7 +308,7 @@ def webhook():
                 }
                 requests.post(url, json=payload)
             
-            # Always answer the callback to remove loading state
+            # Always answer the callback
             answer_url = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
             requests.post(answer_url, json={"callback_query_id": callback['id']})
         
@@ -330,6 +327,109 @@ def webhook():
                 else:
                     send_telegram_message(chat_id,
                         "🤖 *Telegram Control Bot*\n\nNo active sessions.\n\nLogin via web first.")
+            
+            # ========== ADD THESE COMMAND HANDLERS HERE ==========
+            
+            elif text.startswith('/read'):
+                parts = text.split(' ', 1)
+                if len(parts) < 2:
+                    send_telegram_message(chat_id, "❌ Usage: /read CHAT_ID\n\nExample: /read me")
+                else:
+                    chat_target = parts[1]
+                    session_id = user_selected_session.get(str(chat_id))
+                    
+                    if not session_id or session_id not in active_sessions:
+                        send_telegram_message(chat_id, "❌ No session selected. Send /start first and select an account.")
+                    else:
+                        session_data = active_sessions[session_id]
+                        client = session_data['client']
+                        
+                        send_telegram_message(chat_id, f"📖 Reading messages from {chat_target}...")
+                        
+                        async def fetch_messages():
+                            try:
+                                messages = []
+                                async for msg in client.get_chat_history(chat_target, limit=10):
+                                    if msg.text:
+                                        sender = msg.from_user.first_name if msg.from_user else "Unknown"
+                                        messages.append(f"👤 *{sender}*: {msg.text[:200]}")
+                                
+                                if messages:
+                                    response = f"📖 *Messages from {chat_target}:*\n\n" + "\n\n".join(messages)
+                                    if len(response) > 4000:
+                                        response = response[:4000] + "\n\n...(truncated)"
+                                else:
+                                    response = f"No messages found in {chat_target}"
+                                
+                                send_telegram_message(chat_id, response)
+                            except Exception as e:
+                                send_telegram_message(chat_id, f"❌ Error: {str(e)}")
+                        
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        loop.run_until_complete(fetch_messages())
+            
+            elif text.startswith('/send'):
+                parts = text.split(' ', 1)
+                if len(parts) < 2:
+                    send_telegram_message(chat_id, "❌ Usage: /send CHAT_ID | MESSAGE\n\nExample: /send @username | Hello there!")
+                elif ' | ' not in parts[1]:
+                    send_telegram_message(chat_id, "❌ Use format: /send CHAT_ID | MESSAGE")
+                else:
+                    chat_target, message = parts[1].split(' | ', 1)
+                    chat_target = chat_target.strip()
+                    message = message.strip()
+                    
+                    session_id = user_selected_session.get(str(chat_id))
+                    if not session_id or session_id not in active_sessions:
+                        send_telegram_message(chat_id, "❌ No session selected. Send /start first and select an account.")
+                    else:
+                        session_data = active_sessions[session_id]
+                        client = session_data['client']
+                        
+                        async def send_msg():
+                            try:
+                                await client.send_message(chat_target, message)
+                                send_telegram_message(chat_id, f"✅ Message sent to {chat_target}!")
+                            except Exception as e:
+                                send_telegram_message(chat_id, f"❌ Error: {str(e)}")
+                        
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        loop.run_until_complete(send_msg())
+            
+            elif text == '/chats' or text == '/list':
+                session_id = user_selected_session.get(str(chat_id))
+                if not session_id or session_id not in active_sessions:
+                    send_telegram_message(chat_id, "❌ No session selected. Send /start first and select an account.")
+                else:
+                    session_data = active_sessions[session_id]
+                    client = session_data['client']
+                    
+                    send_telegram_message(chat_id, "📂 Fetching your chats...")
+                    
+                    async def fetch_chats():
+                        try:
+                            chats = []
+                            async for dialog in client.get_dialogs(limit=20):
+                                name = dialog.chat.title or dialog.chat.first_name or "Unknown"
+                                identifier = dialog.chat.username or str(dialog.chat.id)
+                                chats.append(f"• *{name}* - `{identifier}`")
+                            
+                            if chats:
+                                response = "📂 *Your Chats:*\n\n" + "\n".join(chats)
+                                if len(response) > 4000:
+                                    response = response[:4000] + "\n\n...(truncated)"
+                            else:
+                                response = "No chats found"
+                            
+                            send_telegram_message(chat_id, response)
+                        except Exception as e:
+                            send_telegram_message(chat_id, f"❌ Error: {str(e)}")
+                    
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(fetch_chats())
         
         return jsonify({'ok': True})
     except Exception as e:
