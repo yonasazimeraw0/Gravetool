@@ -196,6 +196,39 @@ def create_test_session():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/delete-all-sessions', methods=['DELETE'])
+def delete_all_sessions():
+    """Delete ALL session files from /app/sessions"""
+    import shutil
+    
+    results = {
+        'deleted_files': [],
+        'deleted_dirs': [],
+        'errors': []
+    }
+    
+    if not SESSIONS_DIR.exists():
+        return jsonify({'error': 'Sessions directory does not exist', 'results': results})
+    
+    # Delete all files and subdirectories
+    for item in SESSIONS_DIR.iterdir():
+        try:
+            if item.is_file():
+                item.unlink()
+                results['deleted_files'].append(item.name)
+            elif item.is_dir():
+                shutil.rmtree(item)
+                results['deleted_dirs'].append(item.name)
+        except Exception as e:
+            results['errors'].append(f"Failed to delete {item.name}: {str(e)}")
+    
+    # Clear active sessions from memory
+    active_sessions.clear()
+    
+    results['total_deleted'] = len(results['deleted_files']) + len(results['deleted_dirs'])
+    results['message'] = f"Deleted {results['total_deleted']} items from {SESSIONS_DIR}"
+    
+    return jsonify(results)
 # Store which session each bot user has selected
 user_selected_session = {}
 
