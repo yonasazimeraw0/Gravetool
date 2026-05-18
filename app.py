@@ -28,6 +28,10 @@ active_sessions = {}
 SESSIONS_DIR = Path("sessions")
 SESSIONS_DIR.mkdir(exist_ok=True)
 
+# Create a single event loop for the entire app FIRST
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+
 def load_existing_sessions():
     """Load sessions - tries old method first, then new method"""
     import json
@@ -114,10 +118,6 @@ load_existing_sessions()
 
 # Store which session each bot user has selected
 user_selected_session = {}
-
-# Create a single event loop for the entire app
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
 
 # ============ AFRICAN PHONE MODELS LIST ============
 PHONE_MODELS = [
@@ -317,6 +317,76 @@ def webhook():
                 }
                 requests.post(url, json=payload)
             
+            elif data_callback == 'menu_write':
+                url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
+                payload = {
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "text": "✏️ *Send Message*\n\nSend a message in format:\n`/send CHAT_ID | MESSAGE`\n\nExamples:\n`/send @username | Hello!`\n`/send me | Note to self`",
+                    "parse_mode": "Markdown",
+                    "reply_markup": {"inline_keyboard": [[{"text": "🔙 Back to Menu", "callback_data": "back_to_menu"}]]}
+                }
+                requests.post(url, json=payload)
+            
+            elif data_callback == 'menu_chats':
+                session_id = user_selected_session.get(str(chat_id))
+                if not session_id or session_id not in active_sessions:
+                    send_telegram_message(chat_id, "❌ No session selected. Send /start first and select an account.")
+                else:
+                    session_data = active_sessions[session_id]
+                    client = session_data['client']
+                    
+                    url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
+                    payload = {
+                        "chat_id": chat_id,
+                        "message_id": message_id,
+                        "text": "📂 *Fetching your chats...*",
+                        "parse_mode": "Markdown"
+                    }
+                    requests.post(url, json=payload)
+                    
+                    async def fetch_chats_callback():
+                        try:
+                            chats = []
+                            async for dialog in client.get_dialogs(limit=20):
+                                name = dialog.chat.title or dialog.chat.first_name or "Unknown"
+                                identifier = dialog.chat.username or str(dialog.chat.id)
+                                chats.append({"name": name, "identifier": identifier})
+                            
+                            if chats:
+                                response = "📂 *Your Chats:*\n\n" + "\n".join([f"• *{c['name']}* - `{c['identifier']}`" for c in chats[:10]])
+                                if len(response) > 4000:
+                                    response = response[:4000] + "\n\n...(truncated)"
+                            else:
+                                response = "No chats found"
+                            
+                            update_url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
+                            requests.post(update_url, json={
+                                "chat_id": chat_id,
+                                "message_id": message_id,
+                                "text": response,
+                                "parse_mode": "Markdown",
+                                "reply_markup": {"inline_keyboard": [[{"text": "🔙 Back to Menu", "callback_data": "back_to_menu"}]]}
+                            })
+                        except Exception as e:
+                            print(f"Error fetching chats: {e}")
+                            send_telegram_message(chat_id, f"❌ Error: {str(e)}")
+                    
+                    loop.run_until_complete(fetch_chats_callback())
+            
+            elif data_callback == 'switch_account':
+                sessions = get_sessions_list()
+                if sessions:
+                    url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
+                    payload = {
+                        "chat_id": chat_id,
+                        "message_id": message_id,
+                        "text": "🤖 *Telegram Control Bot*\n\nSelect an account:",
+                        "parse_mode": "Markdown",
+                        "reply_markup": sessions_keyboard(sessions)
+                    }
+                    requests.post(url, json=payload)
+            
             elif data_callback == 'back_to_menu':
                 url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
                 payload = {
@@ -385,8 +455,6 @@ def webhook():
                             except Exception as e:
                                 send_telegram_message(chat_id, f"❌ Error: {str(e)}")
                         
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
                         loop.run_until_complete(fetch_messages())
             
             elif text.startswith('/send'):
@@ -414,8 +482,6 @@ def webhook():
                             except Exception as e:
                                 send_telegram_message(chat_id, f"❌ Error: {str(e)}")
                         
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
                         loop.run_until_complete(send_msg())
             
             elif text == '/chats' or text == '/list':
@@ -447,8 +513,6 @@ def webhook():
                         except Exception as e:
                             send_telegram_message(chat_id, f"❌ Error: {str(e)}")
                     
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
                     loop.run_until_complete(fetch_chats())
         
         return jsonify({'ok': True})
@@ -608,9 +672,6 @@ def bot_read_messages():
         session_data = active_sessions[session_id]
         client = session_data['client']
         device_model = session_data.get('device_model', 'Unknown')
-        
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         
         async def fetch():
             messages = []
