@@ -28,6 +28,9 @@ active_sessions = {}
 SESSIONS_DIR = Path("sessions")
 SESSIONS_DIR.mkdir(exist_ok=True)
 
+# Store which session each bot user has selected
+user_selected_session = {}
+
 # Create a single event loop for the entire app
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
@@ -174,6 +177,7 @@ def webhook():
             # Handle selecting a session
             if data_callback.startswith('select_'):
                 session_id = data_callback.replace('select_', '')
+                user_selected_session[str(chat_id)] = session_id
                 
                 if session_id in active_sessions:
                     session_data = active_sessions[session_id]
