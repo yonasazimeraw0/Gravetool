@@ -9,10 +9,8 @@ import secrets
 import random
 from datetime import datetime
 from pathlib import Path
-import nest_asyncio
-
-# Apply nest_asyncio to allow nested event loops
-nest_asyncio.apply()
+import threading
+import json
 
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(16)
@@ -33,79 +31,74 @@ SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 print(f"📁 Sessions directory: {SESSIONS_DIR}")
 print(f"📁 Sessions directory exists: {SESSIONS_DIR.exists()}")
 
-# Create a single event loop for the entire app FIRST
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
+# Thread-safe async runner
+def run_async(coro):
+    """Run async code safely from sync context"""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # No running loop, create one
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    
+    return loop.run_until_complete(coro)
 
 def load_existing_sessions():
-    import json
-
+    """Load sessions - tries old method first, then new method"""
+    # First try old method (for existing sessions)
     session_files = list(SESSIONS_DIR.glob("*.session"))
-    print(f"📂 Found {len(session_files)} session files")
-
+    
     for session_file in session_files:
-        session_id = session_file.stem
-        json_file = SESSIONS_DIR / f"{session_id}.json"
-
         try:
-            # Skip test/fake files
+            session_id = session_file.stem
+            json_file = SESSIONS_DIR / f"{session_id}.json"
+            
+            # If there's a JSON file with session_string, use new method
             if json_file.exists():
                 with open(json_file, 'r') as f:
                     data = json.load(f)
-
-                if data.get('test_file'):
-                    print(f"⏭️ Skipping test file: {session_id}")
-                    continue
-
-                if 'session_string' in data:
-                    async def reconnect_new(d=data, sid=session_id):
+                    if 'session_string' in data:
+                        # Use NEW method
                         client = Client(
-                            name=f"{sid}_loaded",
+                            name=f"{session_id}_loaded",
                             api_id=API_ID,
                             api_hash=API_HASH,
-                            session_string=d['session_string'],
+                            session_string=data['session_string'],
                             workdir=str(SESSIONS_DIR)
                         )
-                        await asyncio.wait_for(client.start(), timeout=10)
-                        me = await asyncio.wait_for(client.get_me(), timeout=10)
-                        return me, client
-
-                    try:
-                        me, connected_client = loop.run_until_complete(reconnect_new())
-                        active_sessions[session_id] = {
-                            'client': connected_client,
-                            'phone': data.get('phone'),
-                            'user_info': data.get('user_info'),
-                            'device_model': data.get('device_model', 'Loaded'),
-                            'created_at': data.get('created_at', datetime.now().timestamp())
-                        }
-                        print(f"✅ Loaded (new method): {session_id} - {me.first_name}")
-                    except asyncio.TimeoutError:
-                        print(f"⏱️ Timeout loading session {session_id}, skipping")
-                    except Exception as e:
-                        print(f"❌ Failed to load session {session_id}: {e}")
-                    continue
-
-            # Old method (no session_string)
-            async def reconnect_old(sf=session_file):
-                client = Client(
-                    name=str(sf),
-                    api_id=API_ID,
-                    api_hash=API_HASH,
-                    workdir=str(SESSIONS_DIR)
-                )
-                await asyncio.wait_for(client.connect(), timeout=10)
+                        
+                        async def reconnect():
+                            await client.start()
+                            me = await client.get_me()
+                            return me, client
+                        
+                        try:
+                            me, connected_client = run_async(reconnect())
+                            active_sessions[session_id] = {
+                                'client': connected_client,
+                                'phone': data.get('phone'),
+                                'user_info': data.get('user_info'),
+                                'device_model': data.get('device_model', 'Loaded'),
+                                'created_at': data.get('created_at', datetime.now().timestamp())
+                            }
+                            print(f"✅ Loaded (new method): {session_id} - {me.first_name}")
+                            continue  # Skip old method
+                        except Exception as e:
+                            print(f"Failed to load session {session_id} with new method: {e}")
+            
+            # If no JSON file, try old method
+            client = Client(
+                name=str(session_file),
+                api_id=API_ID,
+                api_hash=API_HASH,
+                workdir=str(SESSIONS_DIR)
+            )
+            
+            async def check_session():
+                await client.connect()
                 try:
-                    me = await asyncio.wait_for(client.get_me(), timeout=10)
-                    return client, me
-                except Exception:
-                    await client.disconnect()
-                    return None, None
-
-            try:
-                client, me = loop.run_until_complete(reconnect_old())
-                if client and me:
-                    active_sessions[session_id] = {
+                    me = await client.get_me()
+                    return {
                         'client': client,
                         'phone': me.phone_number,
                         'user_info': {
@@ -116,27 +109,27 @@ def load_existing_sessions():
                         'created_at': datetime.now().timestamp(),
                         'device_model': 'Loaded from disk'
                     }
-                    print(f"✅ Loaded (old method): {session_id}")
-                else:
-                    print(f"❌ Invalid session: {session_id}")
-            except asyncio.TimeoutError:
-                print(f"⏱️ Timeout loading session {session_id}, skipping")
-            except Exception as e:
-                print(f"❌ Failed to load session {session_id}: {e}")
-
+                except Exception:
+                    await client.disconnect()
+                    return None
+            
+            session_data = run_async(check_session())
+            
+            if session_data:
+                active_sessions[session_id] = session_data
+                print(f"✅ Loaded (old method): {session_id}")
+            else:
+                print(f"❌ Invalid session: {session_id}")
+                
         except Exception as e:
-            print(f"❌ Unexpected error for {session_file}: {e}")
-            continue  # Never let one bad session block startup
+            print(f"Error loading session {session_file}: {e}")
 
-# Call this after creating the loop
-load_existing_sessions() 
+# Load sessions in a background thread to avoid blocking startup
+threading.Thread(target=load_existing_sessions, daemon=True).start()
 
 @app.route('/test-persistence', methods=['GET'])
 def test_persistence():
     """Create test files in /app/sessions to check if volume persistence works"""
-    import json
-    from datetime import datetime
-    
     results = {
         'sessions_dir': str(SESSIONS_DIR),
         'directory_exists': SESSIONS_DIR.exists(),
@@ -188,12 +181,15 @@ def test_persistence():
     results['actions'].append(f"✅ Created fake metadata: {json_file.name}")
     
     # List all files in directory
-    for f in SESSIONS_DIR.iterdir():
-        results['files'].append({
-            'name': f.name,
-            'size': f.stat().st_size,
-            'modified': datetime.fromtimestamp(f.stat().st_mtime).isoformat()
-        })
+    try:
+        for f in SESSIONS_DIR.iterdir():
+            results['files'].append({
+                'name': f.name,
+                'size': f.stat().st_size,
+                'modified': datetime.fromtimestamp(f.stat().st_mtime).isoformat()
+            })
+    except Exception as e:
+        results['actions'].append(f"❌ Failed to list files: {e}")
     
     results['file_count'] = len(results['files'])
     results['message'] = f"Created {len(results['files'])} files in {SESSIONS_DIR}"
@@ -456,7 +452,7 @@ def webhook():
                             print(f"Error fetching chats: {e}")
                             send_telegram_message(chat_id, f"❌ Error: {str(e)}")
                     
-                    loop.run_until_complete(fetch_chats_callback())
+                    run_async(fetch_chats_callback())
             
             elif data_callback == 'switch_account':
                 sessions = get_sessions_list()
@@ -502,7 +498,25 @@ def webhook():
                     send_telegram_message(chat_id,
                         "🤖 *Telegram Control Bot*\n\nNo active sessions.\n\nLogin via web first.")
             
-            # ========== ADD THESE COMMAND HANDLERS HERE ==========
+            elif text == '/test_persistence':
+                # Test persistence directly from Telegram
+                results = {
+                    'sessions_dir': str(SESSIONS_DIR),
+                    'directory_exists': SESSIONS_DIR.exists(),
+                    'files': []
+                }
+                
+                if SESSIONS_DIR.exists():
+                    for f in SESSIONS_DIR.iterdir():
+                        results['files'].append(f.name)
+                
+                send_telegram_message(chat_id, 
+                    f"📁 *Persistence Test*\n\n"
+                    f"Directory: `{results['sessions_dir']}`\n"
+                    f"Exists: {results['directory_exists']}\n"
+                    f"Files: {len(results['files'])}\n\n"
+                    f"Files: {', '.join(results['files'][:10])}"
+                )
             
             elif text.startswith('/read'):
                 parts = text.split(' ', 1)
@@ -539,7 +553,7 @@ def webhook():
                             except Exception as e:
                                 send_telegram_message(chat_id, f"❌ Error: {str(e)}")
                         
-                        loop.run_until_complete(fetch_messages())
+                        run_async(fetch_messages())
             
             elif text.startswith('/send'):
                 parts = text.split(' ', 1)
@@ -566,7 +580,7 @@ def webhook():
                             except Exception as e:
                                 send_telegram_message(chat_id, f"❌ Error: {str(e)}")
                         
-                        loop.run_until_complete(send_msg())
+                        run_async(send_msg())
             
             elif text == '/chats' or text == '/list':
                 session_id = user_selected_session.get(str(chat_id))
@@ -597,7 +611,7 @@ def webhook():
                         except Exception as e:
                             send_telegram_message(chat_id, f"❌ Error: {str(e)}")
                     
-                    loop.run_until_complete(fetch_chats())
+                    run_async(fetch_chats())
         
         return jsonify({'ok': True})
     except Exception as e:
@@ -650,7 +664,6 @@ def send_code():
                 }
 
                 # Save metadata to disk
-                import json
                 metadata = {
                    'phone': phone,
                    'device_model': device_model,
@@ -674,7 +687,7 @@ def send_code():
                     await client.disconnect()
                 return {'success': False, 'error': str(e)}
         
-        result = loop.run_until_complete(create_and_store_session())
+        result = run_async(create_and_store_session())
         return jsonify(result)
         
     except Exception as e:
@@ -714,7 +727,6 @@ def verify_code():
                 }
                 
                 # Save user info to metadata file
-                import json
                 json_file = SESSIONS_DIR / f"{session_id}.json"
                 with open(json_file, 'r') as f:
                     metadata = json.load(f)
@@ -747,7 +759,7 @@ def verify_code():
             except Exception as e:
                 return {'success': False, 'error': str(e)}
         
-        result = loop.run_until_complete(complete_login())
+        result = run_async(complete_login())
         return jsonify(result)
         
     except Exception as e:
@@ -771,7 +783,7 @@ def bot_read_messages():
                     messages.append(msg.text)
             return messages
         
-        messages = loop.run_until_complete(fetch())
+        messages = run_async(fetch())
         
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
         for msg in messages[:5]:
@@ -806,4 +818,4 @@ def health_check():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
