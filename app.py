@@ -82,7 +82,15 @@ def load_existing_sessions():
             print(f"Error loading session {session_file}: {e}")
 
 # Call this after creating the loop
-load_existing_sessions()
+load_existing_sessions() 
+
+@app.route('/list-session-files', methods=['GET'])
+def list_session_files():
+    files = list(SESSIONS_DIR.glob("*"))
+    return jsonify({
+        'files': [str(f.name) for f in files],
+        'count': len(files)
+    })
 # Store which session each bot user has selected
 user_selected_session = {}
 
