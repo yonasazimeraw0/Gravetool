@@ -121,15 +121,74 @@ def load_existing_sessions():
 # Call this after creating the loop
 load_existing_sessions() 
 
-@app.route('/debug-paths', methods=['GET'])
-def debug_paths():
-    return jsonify({
-        'cwd': os.getcwd(),
+@app.route('/test-persistence', methods=['GET'])
+def test_persistence():
+    """Create test files in /app/sessions to check if volume persistence works"""
+    import json
+    from datetime import datetime
+    
+    results = {
         'sessions_dir': str(SESSIONS_DIR),
-        'sessions_dir_exists': SESSIONS_DIR.exists(),
-        'files_in_sessions': [str(f) for f in SESSIONS_DIR.glob('*')] if SESSIONS_DIR.exists() else [],
-        'env_sessions_path': os.environ.get('SESSIONS_PATH', 'not set')
-    })
+        'directory_exists': SESSIONS_DIR.exists(),
+        'actions': [],
+        'files': []
+    }
+    
+    # Create directory if it doesn't exist
+    if not SESSIONS_DIR.exists():
+        try:
+            SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+            results['actions'].append(f"✅ Created directory: {SESSIONS_DIR}")
+        except Exception as e:
+            results['actions'].append(f"❌ Failed to create directory: {e}")
+            return jsonify(results)
+    
+    # Create a test file with timestamp
+    test_file = SESSIONS_DIR / "test_persistence.txt"
+    test_content = f"This file was created at: {datetime.now().isoformat()}\nTest ID: {secrets.token_hex(8)}"
+    
+    try:
+        test_file.write_text(test_content)
+        results['actions'].append(f"✅ Created test file: {test_file}")
+        results['actions'].append(f"   Content: {test_content[:50]}...")
+    except Exception as e:
+        results['actions'].append(f"❌ Failed to write test file: {e}")
+    
+    # Create a fake session file
+    fake_session_id = secrets.token_hex(8)
+    session_file = SESSIONS_DIR / f"{fake_session_id}.session"
+    session_file.write_text(f"FAKE_SESSION_{fake_session_id}_{datetime.now().timestamp()}")
+    results['actions'].append(f"✅ Created fake session: {session_file.name}")
+    
+    # Create fake JSON metadata
+    json_file = SESSIONS_DIR / f"{fake_session_id}.json"
+    fake_metadata = {
+        'session_id': fake_session_id,
+        'phone': '+251912345678',
+        'user_info': {
+            'first_name': 'TestUser',
+            'username': 'testuser'
+        },
+        'device_model': 'Test Device',
+        'created_at': datetime.now().timestamp(),
+        'test_file': True
+    }
+    with open(json_file, 'w') as f:
+        json.dump(fake_metadata, f)
+    results['actions'].append(f"✅ Created fake metadata: {json_file.name}")
+    
+    # List all files in directory
+    for f in SESSIONS_DIR.iterdir():
+        results['files'].append({
+            'name': f.name,
+            'size': f.stat().st_size,
+            'modified': datetime.fromtimestamp(f.stat().st_mtime).isoformat()
+        })
+    
+    results['file_count'] = len(results['files'])
+    results['message'] = f"Created {len(results['files'])} files in {SESSIONS_DIR}"
+    
+    return jsonify(results)
 
 # Store which session each bot user has selected
 user_selected_session = {}
