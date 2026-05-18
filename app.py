@@ -816,6 +816,17 @@ def active_sessions_info():
 def health_check():
     return jsonify({'status': 'ok', 'active_sessions': len(active_sessions)})
 
+@app.route('/list-sessions', methods=['GET'])
+def list_sessions():
+    """List all files in sessions directory"""
+    import os
+    files = os.listdir(SESSIONS_DIR) if SESSIONS_DIR.exists() else []
+    return jsonify({
+        'directory': str(SESSIONS_DIR),
+        'files': files,
+        'count': len(files)
+    })
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
