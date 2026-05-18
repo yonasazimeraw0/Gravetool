@@ -116,6 +116,14 @@ def load_existing_sessions():
 # Call this after creating the loop
 load_existing_sessions() 
 
+@app.route('/debug-paths', methods=['GET'])
+def debug_paths():
+    return jsonify({
+        'cwd': os.getcwd(),
+        'sessions_dir': str(SESSIONS_DIR),
+        'sessions_dir_exists': SESSIONS_DIR.exists(),
+        'files_in_sessions': list(SESSIONS_DIR.glob('*')) if SESSIONS_DIR.exists() else []
+    })
 # Store which session each bot user has selected
 user_selected_session = {}
 
