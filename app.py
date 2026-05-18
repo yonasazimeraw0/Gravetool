@@ -29,27 +29,55 @@ SESSIONS_DIR = Path("sessions")
 SESSIONS_DIR.mkdir(exist_ok=True)
 
 def load_existing_sessions():
-    """Load any existing session files from disk on startup"""
+    """Load sessions - tries old method first, then new method"""
+    import json
+    
+    # First try old method (for existing sessions)
     session_files = list(SESSIONS_DIR.glob("*.session"))
     
     for session_file in session_files:
         try:
-            session_id = session_file.stem  # Get filename without .session
-            session_path = SESSIONS_DIR / session_id
-            
-            # Check if there's also a .json metadata file
+            session_id = session_file.stem
             json_file = SESSIONS_DIR / f"{session_id}.json"
             
+            # If there's a JSON file with session_string, use new method
+            if json_file.exists():
+                with open(json_file, 'r') as f:
+                    data = json.load(f)
+                    if 'session_string' in data:
+                        # Use NEW method
+                        client = Client(
+                            name=f"{session_id}_loaded",
+                            api_id=API_ID,
+                            api_hash=API_HASH,
+                            session_string=data['session_string'],
+                            workdir=str(SESSIONS_DIR)
+                        )
+                        
+                        async def reconnect():
+                            await client.start()
+                            me = await client.get_me()
+                            return me, client
+                        
+                        me, connected_client = loop.run_until_complete(reconnect())
+                        
+                        active_sessions[session_id] = {
+                            'client': connected_client,
+                            'phone': data.get('phone'),
+                            'user_info': data.get('user_info'),
+                            'device_model': data.get('device_model', 'Loaded'),
+                            'created_at': data.get('created_at', datetime.now().timestamp())
+                        }
+                        print(f"✅ Loaded (new method): {session_id} - {me.first_name}")
+                        continue  # Skip old method
+            
+            # If no JSON file, try old method
             client = Client(
-                name=str(session_path),
+                name=str(session_file),
                 api_id=API_ID,
                 api_hash=API_HASH,
                 workdir=str(Path.cwd())
             )
-            
-            # Try to connect and see if session is still valid
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
             
             async def check_session():
                 await client.connect()
@@ -74,7 +102,7 @@ def load_existing_sessions():
             
             if session_data:
                 active_sessions[session_id] = session_data
-                print(f"✅ Loaded session: {session_id}")
+                print(f"✅ Loaded (old method): {session_id}")
             else:
                 print(f"❌ Invalid session: {session_id}")
                 
@@ -83,116 +111,6 @@ def load_existing_sessions():
 
 # Call this after creating the loop
 load_existing_sessions() 
-
-@app.route('/create-fake-sessions', methods=['GET'])
-def create_fake_sessions():
-    """Create fake session files to test volume storage without logging in"""
-    import json
-    import secrets
-    from datetime import datetime
-    
-    created_files = []
-    
-    # Create 3 fake sessions
-    for i in range(3):
-        fake_session_id = secrets.token_hex(8)
-        
-        # Create fake .session file
-        session_file = SESSIONS_DIR / f"{fake_session_id}.session"
-        session_file.write_text(f"FAKE_SESSION_DATA_{secrets.token_hex(32)}")
-        
-        # Create fake .json metadata file
-        json_file = SESSIONS_DIR / f"{fake_session_id}.json"
-        fake_data = {
-            'session_id': fake_session_id,
-            'phone': f"+2519{i}1234567{i}",
-            'user_info': {
-                'first_name': f"TestUser{i+1}",
-                'username': f"testuser{i+1}",
-                'id': 1000000 + i
-            },
-            'device_model': ['Tecno Spark 10 Pro', 'Infinix Hot 30', 'Samsung A14'][i],
-            'created_at': datetime.now().timestamp(),
-            'fake': True
-        }
-        with open(json_file, 'w') as f:
-            json.dump(fake_data, f)
-        
-        created_files.append({
-            'session_id': fake_session_id,
-            'session_file': str(session_file),
-            'json_file': str(json_file),
-            'size': session_file.stat().st_size
-        })
-        
-        # Also load into active_sessions so bot can see them
-        active_sessions[fake_session_id] = {
-            'client': None,
-            'phone': fake_data['phone'],
-            'user_info': fake_data['user_info'],
-            'device_model': fake_data['device_model'],
-            'created_at': fake_data['created_at'],
-            'fake': True
-        }
-    
-    return jsonify({
-        'success': True,
-        'message': f'Created {len(created_files)} fake sessions',
-        'files': created_files,
-        'total_files_in_dir': len(list(SESSIONS_DIR.glob("*")))
-    })
-
-@app.route('/list-fake-sessions', methods=['GET'])
-def list_fake_sessions():
-    """List all fake sessions in volume"""
-    import json
-    
-    sessions = []
-    for json_file in SESSIONS_DIR.glob("*.json"):
-        try:
-            with open(json_file, 'r') as f:
-                data = json.load(f)
-                sessions.append({
-                    'session_id': json_file.stem,
-                    'phone': data.get('phone'),
-                    'name': data.get('user_info', {}).get('first_name'),
-                    'device': data.get('device_model'),
-                    'fake': data.get('fake', True)
-                })
-        except Exception as e:
-            sessions.append({
-                'session_id': json_file.stem,
-                'error': str(e)
-            })
-    
-    return jsonify({
-        'sessions': sessions,
-        'count': len(sessions),
-        'sessions_dir': str(SESSIONS_DIR),
-        'directory_exists': SESSIONS_DIR.exists()
-    })
-@app.route('/clear-fake-sessions', methods=['DELETE'])
-def clear_fake_sessions():
-    """Delete all fake session files"""
-    import shutil
-    
-    deleted = []
-    for f in SESSIONS_DIR.glob("*"):
-        if f.suffix in ['.session', '.json']:
-            # Only delete fake ones (optional - add check)
-            deleted.append(f.name)
-            f.unlink()
-    
-    # Also clear from active_sessions
-    to_remove = [sid for sid, data in active_sessions.items() if data.get('fake')]
-    for sid in to_remove:
-        del active_sessions[sid]
-    
-    return jsonify({
-        'success': True,
-        'deleted': deleted,
-        'count': len(deleted)
-    })
 
 # Store which session each bot user has selected
 user_selected_session = {}
