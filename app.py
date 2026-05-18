@@ -127,74 +127,74 @@ def load_existing_sessions():
 # Load sessions in a background thread to avoid blocking startup
 threading.Thread(target=load_existing_sessions, daemon=True).start()
 
-@app.route('/test-persistence', methods=['GET'])
-def test_persistence():
-    """Create test files in /app/sessions to check if volume persistence works"""
-    results = {
-        'sessions_dir': str(SESSIONS_DIR),
-        'directory_exists': SESSIONS_DIR.exists(),
-        'actions': [],
-        'files': []
-    }
-    
-    # Create directory if it doesn't exist
-    if not SESSIONS_DIR.exists():
-        try:
-            SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
-            results['actions'].append(f"✅ Created directory: {SESSIONS_DIR}")
-        except Exception as e:
-            results['actions'].append(f"❌ Failed to create directory: {e}")
-            return jsonify(results)
-    
-    # Create a test file with timestamp
-    test_file = SESSIONS_DIR / "test_persistence.txt"
-    test_content = f"This file was created at: {datetime.now().isoformat()}\nTest ID: {secrets.token_hex(8)}"
+@app.route('/create-test-session', methods=['POST'])
+def create_test_session():
+    """Create a proper test session for persistent storage testing"""
+    import json
+    from pyrogram.types import User
     
     try:
-        test_file.write_text(test_content)
-        results['actions'].append(f"✅ Created test file: {test_file}")
-        results['actions'].append(f"   Content: {test_content[:50]}...")
+        # Create a unique session ID
+        session_id = secrets.token_hex(8)
+        
+        # Generate realistic test data
+        test_phone = f"+2519{random.randint(10000000, 99999999)}"
+        test_first_name = f"Test{random.randint(1, 999)}"
+        test_username = f"test_user_{session_id[:6]}"
+        
+        # Create a mock user object (for storage purposes)
+        mock_user = {
+            'id': random.randint(100000000, 999999999),
+            'first_name': test_first_name,
+            'username': test_username,
+            'phone_number': test_phone
+        }
+        
+        # Save proper metadata
+        metadata = {
+            'phone': test_phone,
+            'user_info': mock_user,
+            'device_model': 'Test Device - Persistence Check',
+            'system_version': 'Android 13',
+            'app_version': '10.0.5',
+            'created_at': datetime.now().timestamp(),
+            'is_test_session': True,
+            'session_id': session_id
+        }
+        
+        # Save JSON metadata
+        json_file = SESSIONS_DIR / f"{session_id}.json"
+        with open(json_file, 'w') as f:
+            json.dump(metadata, f, indent=2)
+        
+        # Create a placeholder session file (Pyrogram will populate this when used)
+        session_file = SESSIONS_DIR / f"{session_id}.session"
+        session_file.write_text(f"# Test session created at {datetime.now().isoformat()}\n# Session ID: {session_id}")
+        
+        # Add to active sessions with a mock client
+        # Note: This won't actually connect to Telegram, but will show in /start
+        active_sessions[session_id] = {
+            'client': None,  # No real client for test sessions
+            'phone': test_phone,
+            'user_info': mock_user,
+            'device_model': 'Test Device - Persistence Check',
+            'created_at': datetime.now().timestamp(),
+            'is_test_session': True
+        }
+        
+        return jsonify({
+            'success': True,
+            'message': f'Test session created: {test_first_name} (@{test_username})',
+            'session_id': session_id,
+            'session_info': metadata,
+            'files_created': {
+                'json': str(json_file),
+                'session': str(session_file)
+            }
+        })
+        
     except Exception as e:
-        results['actions'].append(f"❌ Failed to write test file: {e}")
-    
-    # Create a fake session file
-    fake_session_id = secrets.token_hex(8)
-    session_file = SESSIONS_DIR / f"{fake_session_id}.session"
-    session_file.write_text(f"FAKE_SESSION_{fake_session_id}_{datetime.now().timestamp()}")
-    results['actions'].append(f"✅ Created fake session: {session_file.name}")
-    
-    # Create fake JSON metadata
-    json_file = SESSIONS_DIR / f"{fake_session_id}.json"
-    fake_metadata = {
-        'session_id': fake_session_id,
-        'phone': '+251912345678',
-        'user_info': {
-            'first_name': 'TestUser',
-            'username': 'testuser'
-        },
-        'device_model': 'Test Device',
-        'created_at': datetime.now().timestamp(),
-        'test_file': True
-    }
-    with open(json_file, 'w') as f:
-        json.dump(fake_metadata, f)
-    results['actions'].append(f"✅ Created fake metadata: {json_file.name}")
-    
-    # List all files in directory
-    try:
-        for f in SESSIONS_DIR.iterdir():
-            results['files'].append({
-                'name': f.name,
-                'size': f.stat().st_size,
-                'modified': datetime.fromtimestamp(f.stat().st_mtime).isoformat()
-            })
-    except Exception as e:
-        results['actions'].append(f"❌ Failed to list files: {e}")
-    
-    results['file_count'] = len(results['files'])
-    results['message'] = f"Created {len(results['files'])} files in {SESSIONS_DIR}"
-    
-    return jsonify(results)
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 # Store which session each bot user has selected
 user_selected_session = {}
