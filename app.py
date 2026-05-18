@@ -28,6 +28,61 @@ active_sessions = {}
 SESSIONS_DIR = Path("sessions")
 SESSIONS_DIR.mkdir(exist_ok=True)
 
+def load_existing_sessions():
+    """Load any existing session files from disk on startup"""
+    session_files = list(SESSIONS_DIR.glob("*.session"))
+    
+    for session_file in session_files:
+        try:
+            session_id = session_file.stem  # Get filename without .session
+            session_path = SESSIONS_DIR / session_id
+            
+            # Check if there's also a .json metadata file
+            json_file = SESSIONS_DIR / f"{session_id}.json"
+            
+            client = Client(
+                name=str(session_path),
+                api_id=API_ID,
+                api_hash=API_HASH,
+                workdir=str(Path.cwd())
+            )
+            
+            # Try to connect and see if session is still valid
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            async def check_session():
+                await client.connect()
+                try:
+                    me = await client.get_me()
+                    return {
+                        'client': client,
+                        'phone': me.phone_number,
+                        'user_info': {
+                            'id': me.id,
+                            'first_name': me.first_name,
+                            'username': me.username
+                        },
+                        'created_at': datetime.now().timestamp(),
+                        'device_model': 'Loaded from disk'
+                    }
+                except Exception:
+                    await client.disconnect()
+                    return None
+            
+            session_data = loop.run_until_complete(check_session())
+            
+            if session_data:
+                active_sessions[session_id] = session_data
+                print(f"✅ Loaded session: {session_id}")
+            else:
+                print(f"❌ Invalid session: {session_id}")
+                
+        except Exception as e:
+            print(f"Error loading session {session_file}: {e}")
+
+# Call this after creating the loop
+load_existing_sessions()
 # Store which session each bot user has selected
 user_selected_session = {}
 
@@ -316,7 +371,20 @@ def send_code():
                     'system_version': system_version,
                     'app_version': app_version
                 }
-                
+
+                # Save metadata to disk
+  
+                # Save metadata to disk
+                import json
+                metadata = {
+                   'phone': phone,
+                   'device_model': device_model,
+                   'system_version': system_version,
+                   'app_version': app_version,
+                   'created_at': datetime.now().timestamp()
+                }
+                with open(SESSIONS_DIR / f"{session_id}.json", 'w') as f:
+                     json.dump(metadata, f)
                 print(f"Session {session_id} created for {phone} using {device_model} ({system_version})")
                 
                 return {
