@@ -362,6 +362,42 @@ def debug_sessions():
             'is_test': data.get('is_test_session', False)
         })
     return jsonify(result)
+
+@app.route('/force-restore', methods=['GET'])
+def force_restore():
+    session_id = "9253fe1ad404e9a8"
+    json_file = SESSIONS_DIR / f"{session_id}.json"
+    
+    with open(json_file) as f:
+        data = json.load(f)
+    
+    client = Client(
+        name=f"{session_id}_restored",
+        api_id=API_ID,
+        api_hash=API_HASH,
+        session_string=data['session_string'],
+        workdir=str(SESSIONS_DIR)
+    )
+    
+    async def reconnect():
+        await client.start()
+        me = await client.get_me()
+        return me
+    
+    try:
+        me = run_async(reconnect())
+        active_sessions[session_id] = {
+            'client': client,
+            'phone': data.get('phone'),
+            'user_info': data.get('user_info'),
+            'device_model': data.get('device_model', 'Restored'),
+            'created_at': data.get('created_at', datetime.now().timestamp()),
+            'session_string': data.get('session_string')
+        }
+        return jsonify({'success': True, 'name': me.first_name, 'session_id': session_id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+        
 # Store which session each bot user has selected
 user_selected_session = {}
 
