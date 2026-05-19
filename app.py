@@ -174,7 +174,6 @@ def api_get_chats(session_id):
 
 @app.route('/api/messages/<session_id>/<chat_id>', methods=['GET'])
 def api_get_messages(session_id, chat_id):
-    """Get messages from a specific chat"""
     if session_id not in active_sessions:
         return jsonify({'error': 'Session not found'}), 404
     
@@ -189,12 +188,10 @@ def api_get_messages(session_id, chat_id):
                     messages.append({
                         'id': msg.id,
                         'text': msg.text,
-                        'date': msg.date,
+                        'date': int(msg.date.timestamp()) * 1000,  # JS milliseconds
                         'is_outgoing': msg.outgoing,
                         'from_user': msg.from_user.first_name if msg.from_user else 'Unknown'
                     })
-            
-            # Reverse to show oldest first
             messages.reverse()
             return messages
         except Exception as e:
