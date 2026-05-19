@@ -77,6 +77,10 @@ def load_existing_sessions():
             if 'session_string' not in data:
                 print(f"⚠️  No session_string in {session_id}.json - skipping")
                 continue
+
+            if 'user_info' not in data:
+                print(f"⚠️  No user_info in {session_id}.json - incomplete login, skipping")
+                continue     
             
             print(f"🔄 Attempting to restore session: {session_id}")
             
