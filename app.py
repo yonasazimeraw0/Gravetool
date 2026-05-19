@@ -349,6 +349,19 @@ def delete_all_sessions():
     
     return jsonify(results)
 
+@app.route('/debug-sessions', methods=['GET'])
+def debug_sessions():
+    result = []
+    for json_file in SESSIONS_DIR.glob("*.json"):
+        with open(json_file) as f:
+            data = json.load(f)
+        result.append({
+            'file': json_file.name,
+            'has_session_string': 'session_string' in data,
+            'phone': data.get('phone'),
+            'is_test': data.get('is_test_session', False)
+        })
+    return jsonify(result)
 # Store which session each bot user has selected
 user_selected_session = {}
 
