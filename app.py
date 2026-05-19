@@ -139,7 +139,6 @@ def api_get_sessions():
 
 @app.route('/api/chats/<session_id>', methods=['GET'])
 def api_get_chats(session_id):
-    """Get all chats for a session"""
     if session_id not in active_sessions:
         return jsonify({'error': 'Session not found'}), 404
     
@@ -152,17 +151,15 @@ def api_get_chats(session_id):
             async for dialog in client.get_dialogs(limit=50):
                 chat_name = dialog.chat.title or dialog.chat.first_name or "Unknown"
                 chat_id = dialog.chat.id
-                
-                # Get preview message
+
+                # Try top_message first, fall back to empty
                 preview = "No messages"
                 try:
-                    async for msg in client.get_chat_history(chat_id, limit=1):
-                        if msg.text:
-                            preview = msg.text[:50]
-                        break
+                    if dialog.top_message and dialog.top_message.text:
+                        preview = dialog.top_message.text[:50]
                 except:
                     pass
-                
+
                 chats.append({
                     'chat_id': str(chat_id),
                     'name': chat_name,
