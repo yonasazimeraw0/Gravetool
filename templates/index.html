@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gravetool - Telegram Manager</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+        }
+
+        .sidebar {
+            width: 280px;
+            background: #1a1a2e;
+            color: white;
+            padding: 20px;
+            overflow-y: auto;
+            box-shadow: 2px 0 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .sidebar-header {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 30px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .sidebar-section {
+            margin-bottom: 30px;
+        }
+
+        .sidebar-section-title {
+            font-size: 12px;
+            text-transform: uppercase;
+            color: #888;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .session-item {
+            padding: 12px;
+            margin-bottom: 8px;
+            background: #16213e;
+            border-radius: 8px;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.3s;
+            font-size: 14px;
+        }
+
+        .session-item:hover {
+            background: #0f3460;
+        }
+
+        .session-item.active {
+            background: #667eea;
+            border-color: #764ba2;
+        }
+
+        .session-name {
+            font-weight: 600;
+            display: block;
+        }
+
+        .session-phone {
+            font-size: 12px;
+            color: #aaa;
+        }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: white;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .header-info {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .content {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .chat-list {
+            width: 300px;
+            background: white;
+            border-right: 1px solid #e0e0e0;
+            display: flex;
+            flex-direction: column;
+            box-shadow: inset -2px 0 5px rgba(0, 0, 0, 0.05);
+        }
+
+        .chat-search {
+            padding: 15px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .chat-search input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+        }
+
+        .chat-search input:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .chat-items {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .chat-item {
+            padding: 12px 15px;
+            border-bottom: 1px solid #f0f0f0;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+
+        .chat-item:hover {
+            background: #f9f9f9;
+            border-left-color: #667eea;
+        }
+
+        .chat-item.active {
+            background: #f0f4ff;
+            border-left-color: #667eea;
+        }
+
+        .chat-name {
+            font-weight: 600;
+            color: #333;
+            font-size: 14px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .chat-preview {
+            font-size: 12px;
+            color: #999;
+            margin-top: 3px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .chat-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: white;
+        }
+
+        .messages-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid #e0e0e0;
+            background: #f9f9f9;
+        }
+
+        .messages-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .messages-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .message {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .message.outgoing {
+            justify-content: flex-end;
+        }
+
+        .message-bubble {
+            max-width: 60%;
+            padding: 10px 14px;
+            border-radius: 12px;
+            word-wrap: break-word;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        .message.incoming .message-bubble {
+            background: #e0e0e0;
+            color: #333;
+        }
+
+        .message.outgoing .message-bubble {
+            background: #667eea;
+            color: white;
+        }
+
+        .message-time {
+            font-size: 12px;
+            color: #999;
+            margin-top: 4px;
+        }
+
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            color: #999;
+            height: 100%;
+        }
+
+        .input-area {
+            padding: 15px 20px;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            gap: 10px;
+            background: #fafafa;
+        }
+
+        .input-area input {
+            flex: 1;
+            padding: 10px 14px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+        }
+
+        .input-area input:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .btn {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:active {
+            transform: scale(0.98);
+        }
+
+        .btn-secondary {
+            background: #e0e0e0;
+            color: #333;
+        }
+
+        .btn-secondary:hover {
+            background: #d0d0d0;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #999;
+        }
+
+        .spinner {
+            border: 3px solid #f0f0f0;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .no-session {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            height: 100%;
+            color: #999;
+        }
+
+        .no-session-icon {
+            font-size: 48px;
+        }
+
+        .badge {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin-left: 5px;
+        }
+
+        .error-message {
+            background: #fee;
+            color: #c33;
+            padding: 12px;
+            border-radius: 8px;
+            border-left: 4px solid #c33;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+
+        .success-message {
+            background: #efe;
+            color: #3c3;
+            padding: 12px;
+            border-radius: 8px;
+            border-left: 4px solid #3c3;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+
+        @media (max-width: 768px) {
+            .sidebar {
+                width: 200px;
+            }
+
+            .chat-list {
+                width: 250px;
+            }
+
+            .message-bubble {
+                max-width: 80%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar with Sessions -->
+    <div class="sidebar">
+        <div class="sidebar-header">
+            📱 Gravetool
+        </div>
+
+        <div class="sidebar-section">
+            <div class="sidebar-section-title">Active Sessions</div>
+            <div id="sessions-list">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p>Loading sessions...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-title" id="header-title">Select a session</div>
+            <div class="header-info">
+                <span id="header-info">No active session</span>
+                <span id="header-device"></span>
+            </div>
+        </div>
+
+        <!-- Content Area -->
+        <div class="content">
+            <!-- Chat List -->
+            <div class="chat-list">
+                <div class="chat-search">
+                    <input type="text" id="chat-search" placeholder="Search chats...">
+                </div>
+                <div class="chat-items" id="chats-list">
+                    <div class="empty-state">
+                        <p>👋 Select a session to see chats</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chat Content -->
+            <div class="chat-content">
+                <div id="main-area">
+                    <div class="empty-state">
+                        <div class="no-session-icon">💬</div>
+                        <p>Select a chat to start messaging</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentSession = null;
+        let currentChat = null;
+        let allChats = [];
+
+        // Load sessions on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadSessions();
+        });
+
+        async function loadSessions() {
+            try {
+                const response = await fetch('/api/sessions');
+                const data = await response.json();
+
+                const sessionsList = document.getElementById('sessions-list');
+
+                if (data.sessions && data.sessions.length > 0) {
+                    sessionsList.innerHTML = data.sessions.map(session => `
+                        <div class="session-item" onclick="selectSession('${session.session_id}', this)">
+                            <div class="session-name">👤 ${session.name}</div>
+                            <div class="session-phone">${session.phone}</div>
+                        </div>
+                    `).join('');
+                } else {
+                    sessionsList.innerHTML = '<div class="empty-state"><p>No active sessions</p></div>';
+                }
+            } catch (error) {
+                console.error('Error loading sessions:', error);
+                document.getElementById('sessions-list').innerHTML = '<div class="error-message">Failed to load sessions</div>';
+            }
+        }
+
+        async function selectSession(sessionId, element) {
+            currentSession = sessionId;
+            currentChat = null;
+
+            // Update active session
+            document.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
+            element.classList.add('active');
+
+            // Update header
+            const response = await fetch('/api/sessions');
+            const data = await response.json();
+            const session = data.sessions.find(s => s.session_id === sessionId);
+
+            document.getElementById('header-title').textContent = `💬 ${session.name}`;
+            document.getElementById('header-info').textContent = session.phone;
+            document.getElementById('header-device').textContent = session.device;
+
+            // Load chats
+            loadChats();
+        }
+
+        async function loadChats() {
+            if (!currentSession) return;
+
+            const chatsList = document.getElementById('chats-list');
+            chatsList.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+            try {
+                const response = await fetch(`/api/chats/${currentSession}`);
+                const data = await response.json();
+
+                allChats = data.chats || [];
+
+                if (allChats.length > 0) {
+                    displayChats(allChats);
+                } else {
+                    chatsList.innerHTML = '<div class="empty-state"><p>No chats found</p></div>';
+                }
+            } catch (error) {
+                console.error('Error loading chats:', error);
+                chatsList.innerHTML = '<div class="error-message">Failed to load chats</div>';
+            }
+        }
+
+        function displayChats(chats) {
+            const chatsList = document.getElementById('chats-list');
+            chatsList.innerHTML = chats.map(chat => `
+                <div class="chat-item" onclick="selectChat('${chat.chat_id}', '${chat.name}', this)">
+                    <div class="chat-name">${chat.name}</div>
+                    <div class="chat-preview">${chat.preview || 'No messages'}</div>
+                </div>
+            `).join('');
+        }
+
+        function filterChats() {
+            const search = document.getElementById('chat-search').value.toLowerCase();
+            const filtered = allChats.filter(chat => 
+                chat.name.toLowerCase().includes(search)
+            );
+            displayChats(filtered);
+        }
+
+        document.getElementById('chat-search').addEventListener('input', filterChats);
+
+        async function selectChat(chatId, chatName, element) {
+            if (!currentSession) return;
+
+            currentChat = chatId;
+
+            // Update active chat
+            document.querySelectorAll('.chat-item').forEach(el => el.classList.remove('active'));
+            element.classList.add('active');
+
+            // Load messages
+            loadMessages(chatId, chatName);
+        }
+
+        async function loadMessages(chatId, chatName) {
+            const mainArea = document.getElementById('main-area');
+            mainArea.innerHTML = '<div class="chat-content"><div class="messages-header"><div class="messages-title">' + chatName + '</div></div><div class="loading"><div class="spinner"></div></div></div>';
+
+            try {
+                const response = await fetch(`/api/messages/${currentSession}/${chatId}`);
+                const data = await response.json();
+
+                const messages = data.messages || [];
+
+                if (messages.length > 0) {
+                    mainArea.innerHTML = `
+                        <div class="chat-content">
+                            <div class="messages-header">
+                                <div class="messages-title">${chatName}</div>
+                            </div>
+                            <div class="messages-container" id="messages">
+                                ${messages.map(msg => `
+                                    <div class="message ${msg.is_outgoing ? 'outgoing' : 'incoming'}">
+                                        <div>
+                                            <div class="message-bubble">${escapeHtml(msg.text)}</div>
+                                            <div class="message-time">${new Date(msg.date * 1000).toLocaleTimeString()}</div>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                            <div class="input-area">
+                                <input type="text" id="message-input" placeholder="Type a message...">
+                                <button class="btn btn-primary" onclick="sendMessage('${chatId}')">Send 📤</button>
+                            </div>
+                        </div>
+                    `;
+
+                    // Scroll to bottom
+                    const messagesContainer = document.getElementById('messages');
+                    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+                    // Focus input
+                    document.getElementById('message-input').addEventListener('keypress', (e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                            sendMessage(chatId);
+                        }
+                    });
+                } else {
+                    mainArea.innerHTML = `
+                        <div class="chat-content">
+                            <div class="messages-header">
+                                <div class="messages-title">${chatName}</div>
+                            </div>
+                            <div class="empty-state">
+                                <p>No messages yet</p>
+                            </div>
+                            <div class="input-area">
+                                <input type="text" id="message-input" placeholder="Type a message...">
+                                <button class="btn btn-primary" onclick="sendMessage('${chatId}')">Send 📤</button>
+                            </div>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error loading messages:', error);
+                mainArea.innerHTML = '<div class="error-message">Failed to load messages</div>';
+            }
+        }
+
+        async function sendMessage(chatId) {
+            const input = document.getElementById('message-input');
+            const text = input.value.trim();
+
+            if (!text || !currentSession) return;
+
+            try {
+                const response = await fetch(`/api/send-message/${currentSession}/${chatId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    input.value = '';
+                    loadMessages(chatId, document.querySelector('.chat-item.active .chat-name').textContent);
+                } else {
+                    alert('Failed to send message: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Error sending message:', error);
+                alert('Failed to send message');
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Refresh sessions every 10 seconds
+        setInterval(loadSessions, 10000);
+    </script>
+</body>
+</html>
