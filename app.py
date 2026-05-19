@@ -108,6 +108,11 @@ def load_existing_sessions():
                 print(f"✅ Successfully restored: {session_id} - {me.first_name}")
             except Exception as e:
                 print(f"❌ Failed to restore session {session_id}: {e}")
+                if 'AUTH_KEY_UNREGISTERED' in str(e) or 'AuthKeyUnregistered' in str(e) or 'USER_DEACTIVATED' in str(e):
+                    print(f"🗑️  Deleting revoked session: {session_id}")
+                    (SESSIONS_DIR / f"{session_id}.json").unlink(missing_ok=True)
+                    (SESSIONS_DIR / f"{session_id}.session").unlink(missing_ok=True)
+    
                 
         except Exception as e:
             print(f"Error loading session {json_file}: {e}")
@@ -177,6 +182,11 @@ def api_get_chats(session_id):
             return chats
         except Exception as e:
             print(f"Error fetching chats: {e}")
+            if 'AUTH_KEY_UNREGISTERED' in str(e) or 'AuthKeyUnregistered' in str(e):
+                print(f"🗑️  Session {session_id} revoked, removing...")
+                active_sessions.pop(session_id, None)
+                (SESSIONS_DIR / f"{session_id}.json").unlink(missing_ok=True)
+                (SESSIONS_DIR / f"{session_id}.session").unlink(missing_ok=True)
             return []
         finally:
             await client.stop()
